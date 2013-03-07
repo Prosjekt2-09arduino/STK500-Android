@@ -276,17 +276,19 @@ public enum STK_Message {
     ANSWER_CKSUM_ERROR( (byte) 0xB0  );
 
 
-    byte byteValue;
-    int intValue;
+    private final byte byteValue;
+    private final int intValue;
 
-    STK_Message(byte b)
+    private STK_Message(byte b)
     {
         byteValue = b;
+        intValue = 0;
     }
 
-    STK_Message(int i)
+    private STK_Message(int i)
     {
         intValue = i;
+        byteValue = 0;
     }
 
 
