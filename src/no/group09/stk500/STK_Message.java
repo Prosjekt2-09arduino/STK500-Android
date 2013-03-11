@@ -276,6 +276,7 @@ public enum STK_Message {
     ANSWER_CKSUM_ERROR( (byte) 0xB0  );
 
 
+    //TODO: Part of enum?
     private final byte byteValue;
     private final int intValue;
 
