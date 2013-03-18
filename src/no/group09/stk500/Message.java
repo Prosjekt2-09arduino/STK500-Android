@@ -2,46 +2,97 @@ package no.group09.stk500;
 
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
+import java.util.ArrayList;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 /**
  * Provides an abstraction level for messages in the STK500 protocol
  */
 public class Message {
-	private byte[] body;
-	private byte checksum;
-	private byte sequenceNumber;
-	/**The complete message**/
-	private byte[] data;
-	
-	public Message(byte sequenceNumber, byte[] body) {
-		this.body = body;
-		this.sequenceNumber = sequenceNumber;
-		//TODO: Build message with constants and make checksum
-		throw new NotImplementedException();
-	}
-	
-	
-	/**
-	 * Uses all characters in message including MESSAGE_START and
-	 * MESSAGE_BODY. XOR of all bytes.
-	 */
-	private byte calculateChecksum() {
-		throw new NotImplementedException();
-	}
-	
-	/**
-	 * @return Size of the message as two bytes, most significant first
-	 */
-	private byte[] getMessageSize() {
-		throw new NotImplementedException();
-	}
+    private byte[] body;
+    private byte checksum;
+    private byte sequenceNumber;
+    /**
+     * The complete message
+     */
+    private byte[] data;
+    private Logger logger;
+
+    /**
+     * Constructor for message to Arduino
+     *
+     * @param completeMessage
+     */
+    public Message(ArrayList<Byte> completeMessage) {
+
+    }
+
+    /**
+     * Constructor for message from Arduino device
+     *
+     * @param sequenceNumber
+     * @param body
+     */
+    public Message(byte sequenceNumber, byte[] body) {
+        this.body = body;
+        this.sequenceNumber = sequenceNumber;
+        //TODO: Build message with constants and make checksum
+
+        try {
+
+        } catch (NotImplementedException e) {
+            logger.log(Level.parse(e.getLocalizedMessage()), e.getMessage(), e.getStackTrace());
+        }
+    }
 
 
-	/**
-	 * Used after instancing to get the bytes to send 
-	 * @return
-	 */
-	public byte[] getData() {
-		return data.clone();
-	}
+    /**
+     * Uses all characters in message including MESSAGE_START and
+     * MESSAGE_BODY. XOR of all bytes.
+     *
+     * @param message The full message.
+     * @return Checksum (byte) of message.
+     */
+    private byte calculateChecksum(byte[] message) {
+
+        byte checkSum = 0;
+
+        for (byte b : message) {
+            checkSum ^= b;
+        }
+        return checkSum;
+    }
+
+    /**
+     * @return Size of the message as two bytes, most significant first
+     */
+    public byte[] getMessageSize(byte[] messages) {
+
+        byte[] messageSize = new byte[2];
+        byte messageLength = (byte) messages.length;
+
+
+        for (int i = 0; messages.length != 0; i++/*, messages.length >>>= 8*/) {
+            messageSize[i] += (byte) (messages.length & 0xFF);
+        }
+
+        return messageSize;
+
+    }
+
+
+    /**
+     * Used after instancing to get the bytes to send
+     *
+     * @return
+     */
+    public byte[] getData() {
+        return data.clone();
+    }
+
+    public byte getCalculatedChecksum(byte[] b) {
+        return calculateChecksum(b);
+    }
 
 }
