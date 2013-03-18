@@ -34,9 +34,9 @@ public class STK500 {
 	 */
 	private byte getNewSequenceNumber() {
 		//TODO: Handle unsigned byte encoding
-		throw new NotImplementedException();
+		sequenceNumber = (sequenceNumber == 255) ? 0 : sequenceNumber++;
+		return (byte) sequenceNumber;
 	}
-	
 	
 	
 	private byte[] read() {
