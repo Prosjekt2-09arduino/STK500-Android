@@ -292,5 +292,8 @@ public enum STK_Message {
         byteValue = 0;
     }
 
+    public byte getByteValue() {
+    	return byteValue;
+    }
 
 }
