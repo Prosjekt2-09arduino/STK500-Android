@@ -112,8 +112,12 @@ public class STK500 {
 				//stop reading - create message and change sequence number
 				response = new Message(data);
 				int responseSequenceNumber = response.getSequenceNumber();
-				if (responseSequenceNumber == sequenceNumber + 1 ||
-						(responseSequenceNumber == 0 && sequenceNumber == 255)) {
+				//The response sequence number should be the same as the one
+				//belonging to the command
+				if (responseSequenceNumber == sequenceNumber) {
+					if (!response.isValidChecksum()) {
+						throw new IllegalStateException("Response checksum mismatch");
+					}
 				} else {
 					//sequence number doesn't match
 					throw new IllegalStateException("Wrong sequence number:" +
