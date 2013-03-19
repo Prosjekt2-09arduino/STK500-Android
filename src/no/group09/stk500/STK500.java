@@ -88,7 +88,7 @@ public class STK500 {
 	 */
 	private void send(byte[] body) throws IOException {
 		Message message = new Message(getNewSequenceNumber(), body);
-		byte[] bytes = message.getData();
+		byte[] bytes = message.getCompleteMessage();
 		output.write(bytes, 0, bytes.length);
 	}
 
@@ -127,6 +127,8 @@ public class STK500 {
 				return response;
 			}
 		}
+		//TODO Ensure this can't be reached
+		return null;
 	}
 	
 	/**
