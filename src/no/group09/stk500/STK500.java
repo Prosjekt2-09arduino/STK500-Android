@@ -82,6 +82,7 @@ public class STK500 {
 	
 	/**
 	 * Create a message and send it to the Arduino
+	 * read() should be called after this to get the response
 	 * @param body Command to send
 	 * @throws IOException
 	 */
