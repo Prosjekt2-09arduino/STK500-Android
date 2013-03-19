@@ -94,6 +94,10 @@ public class Message {
         return completeMessage.clone();
     }
 
+    public byte[] getBody() {
+        return body.clone();
+    }
+
     public boolean isValidChecksum(byte[] b) {
 
         if (b[b.length - 1] == calculateChecksum(b)) {
