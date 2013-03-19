@@ -18,20 +18,19 @@ public class STK500 {
 	//TODO: Add field for binary file to program and add to constructor - determine field type
 	
 	//TODO: Incorporate Message class abstraction layer
-	//TODO: Consider Message.send() vs send(message.getData())
 	
 	public STK500 (BufferedOutputStream output, BufferedInputStream input, Object binaryFile) {
 		this.output = output;
 		this.input = input;
 		sequenceNumber = 0;
-		System.out.println(getProgrammerVersion());
+		System.out.println(getProgrammerVersion(10));
 	}
 	
 	/**
 	 * Discover if you're dealing with a STK500 or AVRISP
-	 * @return
+	 * @return Can return an error message
 	 */
-	private String getProgrammerVersion() {
+	private String getProgrammerVersion(int retries) {
 		//send command to get AVRISP or STK500 response
 		byte[] signBody = {STK_Message.CMD_SIGN_ON.getByteValue()}; 
 		
@@ -42,8 +41,8 @@ public class STK500 {
 			byte[] body;
 			String ret = "";
 			body = version.getBody();
-			if (body[0] != STK_Message.CMD_SIGN_ON.getByteValue() {
-				throw new RuntimeException("Wrong response ID: expected " +
+			if (body[0] != STK_Message.CMD_SIGN_ON.getByteValue()) {
+				throw new IllegalStateException("Wrong response ID: expected " +
 						STK_Message.CMD_SIGN_ON.getByteValue() + ", but " +
 						"received " + body[0] + ".");
 			}
@@ -53,8 +52,18 @@ public class STK500 {
 				ret += (char) decodeByte(b);
 			}
 		} catch (IOException e) {
-			// TODO Retry x times
-			e.printStackTrace();
+			//Retry process if there are communication issues
+			if (retries > 0) {
+				return getProgrammerVersion(retries - 1);
+			} else {
+				return "Error: Communication problem";
+			}
+		} catch (IllegalStateException e) {
+			//Fail hard on sequence number problem or incorrect response
+			//return "Error: " + e.getMessage();
+			throw e;
+			//TODO log it?
+			//TODO Should recovery be possible?
 		}
 	}
 	
@@ -66,7 +75,6 @@ public class STK500 {
 	 * @return Sequence number between 0 and 255; wraps back to 0.
 	 */
 	private byte getNewSequenceNumber() {
-		//TODO: Handle unsigned byte encoding
 		sequenceNumber = (sequenceNumber == 255) ? 0 : sequenceNumber++;
 		return (byte) sequenceNumber;
 	}
@@ -88,8 +96,9 @@ public class STK500 {
 	 * for parsing and returns the completed message.
 	 * @return Message with response
 	 * @throws IOException
+	 * @throws IllegalStateException
 	 */
-	private Message read() throws IOException {
+	private Message read() throws IOException, IllegalStateException {
 		Message response;
 		//The read byte as an int or -1 for nothing more to read
 		int read = 0;
@@ -106,7 +115,7 @@ public class STK500 {
 						(responseSequenceNumber == 0 && sequenceNumber == 255)) {
 				} else {
 					//sequence number doesn't match
-					throw new IllegalArgumentException("Wrong sequence number:" +
+					throw new IllegalStateException("Wrong sequence number:" +
 							"old was " + sequenceNumber + " and the received "+ 
 							"message is " + responseSequenceNumber);
 				}
