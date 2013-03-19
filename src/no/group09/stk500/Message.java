@@ -13,7 +13,7 @@ public class Message {
     private byte[] completeMessage;
 
     /**
-     * Constructor for message to Arduino device.
+     * Constructor for message received from Arduino device.
      *
      * @param completeMessage
      */
@@ -33,10 +33,11 @@ public class Message {
                 body[j] = this.completeMessage[i];
             }
         }
+        checkSum = this.completeMessage[this.completeMessage.length - 1];
     }
 
     /**
-     * Constructor for message from Arduino device.
+     * Constructor for message to send to Arduino device.
      *
      * @param sequenceNumber
      * @param body
@@ -62,24 +63,10 @@ public class Message {
         for (int i = 0; i < messageWithoutChecksum.length; i++) {
             messageWithoutChecksum[i] = completeMessage[i];
         }
-        completeMessage[completeMessage.length - 1] = calculateChecksum(messageWithoutChecksum);
+        checkSum = calculateChecksum(messageWithoutChecksum);
+        completeMessage[completeMessage.length - 1] = checkSum;
     }
 
-
-    /**
-     * Uses all characters in message including MESSAGE_START and
-     * MESSAGE_BODY. XOR of all bytes.
-     *
-     * @param message The full message.
-     * @return Checksum (byte) of message.
-     */
-    private byte calculateChecksum(byte[] message) {
-
-        for (byte b : message) {
-            checkSum ^= b;
-        }
-        return checkSum;
-    }
 
     /**
      * @param messages The full message.
@@ -106,6 +93,10 @@ public class Message {
         return completeMessage.clone();
     }
 
+    /**
+     * Get the body of a message, used on responses
+     * @return
+     */
     public byte[] getBody() {
         return body.clone();
     }
@@ -116,10 +107,50 @@ public class Message {
     public int getSequenceNumber() {
         return 0xFF & (int) sequenceNumber;
     }
+    
+    /**
+	 * Uses all characters in message including MESSAGE_START and
+	 * MESSAGE_BODY. XOR of all bytes.
+	 *
+	 * @param message The full message.
+	 * @return Checksum (byte) of message.
+	 */
+	private static byte calculateChecksum(byte[] message, int endIndex) {
+		byte checkSum = message[0];
+		for (int i = 1; i < endIndex; i++) {
+			checkSum ^= message[i];
+		}
+	    return checkSum;
+	}
 
-    public boolean isValidChecksum(byte[] b) {
+	/**
+	 * Uses all characters in message including MESSAGE_START and
+	 * MESSAGE_BODY. XOR of all bytes.
+	 * Provided for convenience; simply uses the other variant
+	 * 
+	 * @param message The full message.
+	 * @return Checksum (byte) of message.
+	 */
+	private static byte calculateChecksum(byte[] message) {
+		return calculateChecksum(message, message.length);
+	}
 
-        if (b[b.length - 1] == calculateChecksum(b)) {
+	/**
+     * Check if the message is valid
+     * @return
+     */
+    public boolean isValidChecksum() {
+    	return (checkSum == calculateChecksum(completeMessage, completeMessage.length - 1));
+    }
+
+    /**
+     * Check if the message in byte form is valid
+     * @param b Array of bytes, should include checksum byte
+     * @return
+     */
+    public static boolean isValidChecksum(byte[] b) {
+
+        if (b[b.length - 1] == calculateChecksum(b, b.length - 1)) {
             return true;
         }
         return false;
