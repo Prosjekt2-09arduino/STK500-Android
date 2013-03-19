@@ -14,9 +14,6 @@ public class Message {
     private byte[] body;
     private byte checksum;
     private byte sequenceNumber;
-    /**
-     * The complete message
-     */
     private byte[] completeMessage;
     private Logger logger;
 
@@ -93,8 +90,8 @@ public class Message {
      *
      * @return
      */
-    public byte[] getData() {
-        return data.clone();
+    public byte[] getCompleteMessage() {
+        return completeMessage.clone();
     }
 
     public boolean isValidChecksum(byte[] b) {
