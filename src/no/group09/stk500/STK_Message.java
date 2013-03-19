@@ -14,6 +14,11 @@ public enum STK_Message {
 
 // *****************[ STK general command constants ]**************************
 
+    /**
+     * This command returns a unique signature string for the STK500/AVRISP
+     * with this implementation of the protocol. The signature is “STK500_2”
+     * or “AVRISP_2”.
+     **/
     CMD_SIGN_ON( (byte) 0x01 ),
     CMD_SET_PARAMETER( (byte) 0x02 ),
     CMD_GET_PARAMETER( (byte) 0x03 ),
