@@ -10,13 +10,14 @@ import java.util.logging.Logger;
  * Provides an abstraction level for messages in the STK500 protocol
  */
 public class Message {
+
     private byte[] body;
     private byte checksum;
     private byte sequenceNumber;
     /**
      * The complete message
      */
-    private byte[] data;
+    private byte[] completeMessage;
     private Logger logger;
 
     /**
@@ -25,6 +26,12 @@ public class Message {
      * @param completeMessage
      */
     public Message(ArrayList<Byte> completeMessage) {
+
+        this.completeMessage = new byte[completeMessage.size()];
+
+        for (int i = 0; i < completeMessage.size(); i++) {
+            this.completeMessage[i] = completeMessage.get(i);
+        }
 
     }
 
