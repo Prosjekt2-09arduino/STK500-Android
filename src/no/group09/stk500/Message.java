@@ -98,6 +98,13 @@ public class Message {
         return body.clone();
     }
 
+    /**
+     * @return unsigned value of sequenceNumber
+     */
+    public int getSequenceNumber() {
+        return 0xFF & (int) sequenceNumber;
+    }
+
     public boolean isValidChecksum(byte[] b) {
 
         if (b[b.length - 1] == calculateChecksum(b)) {
