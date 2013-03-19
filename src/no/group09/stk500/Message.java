@@ -35,6 +35,7 @@ public class Message {
      * @param body
      */
     public Message(byte sequenceNumber, byte[] body) {
+
         this.body = body;
         this.sequenceNumber = sequenceNumber;
         //TODO: Build message with constants and make checksum
@@ -65,22 +66,20 @@ public class Message {
     }
 
     /**
+     * @param messages The full message.
      * @return Size of the message as two bytes, most significant first
      */
     public byte[] getMessageSize(byte[] messages) {
 
         byte[] messageSize = new byte[2];
-        byte messageLength = (byte) messages.length;
+        messageSize[0] = (byte) (messages.length & 0xFF);
 
-
-        for (int i = 0; messages.length != 0; i++/*, messages.length >>>= 8*/) {
-            messageSize[i] += (byte) (messages.length & 0xFF);
+        for (int i = 0; i < messages.length; i++) {
+            messageSize[1] += (byte) (messages.length & 0xFF);
         }
 
         return messageSize;
-
     }
-
 
     /**
      * Used after instancing to get the bytes to send
@@ -91,8 +90,12 @@ public class Message {
         return data.clone();
     }
 
-    public byte getCalculatedChecksum(byte[] b) {
-        return calculateChecksum(b);
+    public boolean isValidChecksum(byte[] b) {
+
+        if (b[b.length - 1] == calculateChecksum(b)) {
+            return true;
+        }
+        return false;
     }
 
 }
