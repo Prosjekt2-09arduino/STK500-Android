@@ -10,6 +10,7 @@ public class Message {
     private byte[] body;
     private byte checkSum;
     private byte sequenceNumber;
+    private byte[] messageSize;
     private byte[] completeMessage;
 
     /**
@@ -47,12 +48,14 @@ public class Message {
 
         this.body = body;
         this.sequenceNumber = sequenceNumber;
+        messageSize = new byte[2];
+        packMessageSize();
 
         completeMessage = new byte[body.length + 6];
         completeMessage[0] = STK_Message.MESSAGE_START.getByteValue();
         completeMessage[1] = sequenceNumber;
-        completeMessage[2] = getMessageSize(body)[0];
-        completeMessage[3] = getMessageSize(body)[getMessageSize(body).length - 1];
+        completeMessage[2] = messageSize[0];
+        completeMessage[3] = messageSize[1];
         completeMessage[4] = STK_Message.TOKEN.getByteValue();
 
         for (int i = 5; i < body.length; i++) {
@@ -69,19 +72,15 @@ public class Message {
 
 
     /**
-     * @param messages The full message.
+     * @param message The full message.
      * @return Size of the message as two bytes, most significant first
      */
-    public byte[] getMessageSize(byte[] messages) {
+    private void packMessageSize() {
 
-        byte[] messageSize = new byte[2];
-        messageSize[0] = (byte) (messages.length & 0xFF);
-
-        for (int i = 0; i < messages.length; i++) {
-            messageSize[1] += (byte) (messages.length & 0xFF);
-        }
-
-        return messageSize;
+        //store the 8 least significant bits
+        messageSize[1] = (byte) (body.length & 0xFF);
+        //store the next 8 bits
+        messageSize[0] = (byte) ((body.length >> 8) & 0xFF);
     }
 
     /**
