@@ -30,12 +30,13 @@ public class STK500 {
 	 * Discover if you're dealing with a STK500 or AVRISP
 	 * @return Can return an error message
 	 */
-	private String getProgrammerVersion(int retries) {
+	private String getProgrammerVersion(int retries) throws IllegalStateException {
 		//send command to get AVRISP or STK500 response
 		byte[] signBody = {STK_Message.CMD_SIGN_ON.getByteValue()}; 
 		
 		try {
 			//Send the command, then read the response
+			//TODO Add timeouts
 			send(signBody);
 			Message version = read();
 
@@ -61,12 +62,6 @@ public class STK500 {
 			} else {
 				return "Error: Communication problem";
 			}
-		} catch (IllegalStateException e) {
-			//Fail hard on sequence number problem or incorrect response
-			//return "Error: " + e.getMessage();
-			throw e;
-			//TODO log it?
-			//TODO Should recovery be possible?
 		}
 	}
 	
