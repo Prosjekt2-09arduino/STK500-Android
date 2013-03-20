@@ -35,10 +35,12 @@ public class STK500 {
 		byte[] signBody = {STK_Message.CMD_SIGN_ON.getByteValue()}; 
 		
 		try {
+			//Send the command, then read the response
 			send(signBody);
 			Message version = read();
 
 			byte[] body;
+			//String to return
 			String ret = "";
 			body = version.getBody();
 			if (body[0] != STK_Message.CMD_SIGN_ON.getByteValue()) {
@@ -51,6 +53,7 @@ public class STK500 {
 				byte b = body[i];
 				ret += (char) decodeByte(b);
 			}
+			return ret;
 		} catch (IOException e) {
 			//Retry process if there are communication issues
 			if (retries > 0) {
