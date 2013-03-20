@@ -1,6 +1,8 @@
 package no.group09.stk500;
 
+import java.lang.reflect.Array;
 import java.util.ArrayList;
+import java.util.Arrays;
 
 /**
  * Provides an abstraction level for messages in the STK500 protocol
@@ -72,6 +74,32 @@ public class Message {
 
 
     /**
+     * Constructor for responses from the Arduino
+     * @param header
+     * @param body
+     */
+    public Message(byte[] header, byte[] body) {
+    	sequenceNumber = header[1];
+    	this.body = body;
+    	completeMessage = new byte[header.length + body.length];
+    	for (int i = 0, headC = 0, bodyC = 0; i < body.length; i++) {
+    		//stop short of checksum
+			if (i < header.length - 1) {
+    			completeMessage[i] = header[headC];
+    			headC++;
+    		} else if (bodyC < body.length) {
+    			//copy the body
+    			completeMessage[i] = body[bodyC];
+    			bodyC++;
+    		} else {
+    			//add the checksum
+    			checkSum = header[headC];
+    			completeMessage[i] = checkSum; 
+    		}
+    	}
+	}
+
+	/**
      * @param message The full message.
      * @return Size of the message as two bytes, most significant first
      */

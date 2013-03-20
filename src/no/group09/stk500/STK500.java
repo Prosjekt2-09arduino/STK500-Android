@@ -102,7 +102,7 @@ public class STK500 {
 	 * @throws IOException
 	 * @throws IllegalStateException
 	 */
-	private Message read() throws IOException, IllegalStateException {
+	private Message readLegacy() throws IOException, IllegalStateException {
 		Message response;
 		//The read byte as an int or -1 for nothing more to read
 		int read = 0;
@@ -132,6 +132,128 @@ public class STK500 {
 		}
 		//TODO Ensure this can't be reached
 		return null;
+	}
+	
+	private Message read() throws IOException {
+		Message response = null;
+		byte[] header = new byte[6];
+		/**Number of bytes to read of the header**/
+		int headerBytes = 0;
+		byte[] body = null;
+		/**Number of bytes read of the body**/
+		int bodyBytes = 0;
+		/**Holds -1 if there are no bytes to read, otherwise the byte as an integer**/
+		int readResult = 0;
+		/**Total number of bytes in the body to read**/
+		int bodySize = 0;
+		
+		//Stops when end of stream is found.
+		//Also broken after the switch statement if full message read
+		//TODO Add the protocol timeout restrictions
+		while (readResult >= 0) {
+			 readResult = input.read();
+			 if (readResult == -1) {
+				 //end of stream
+				 //TODO When does this happen? How to deal with it?
+			 } else {
+				 byte readByte = (byte) readResult;
+				 boolean headerByteFound = false;
+				 switch (headerBytes) {
+				 //look for start byte
+				 case 0 : {
+					 if (readByte == getConstantByte("MESSAGE_START")) {
+						 headerByteFound = true;
+					 } else {
+						 //start byte not received, keep going
+						 continue;
+					 }
+					 break;
+				 }
+				 //sequence number
+				 case 1: {
+					 if (decodeByte(readByte) == sequenceNumber) {
+						 headerByteFound = true;
+					 } else {
+						 //sequence mismatch, back to start
+						 headerBytes = 0;
+					 }
+					 break;
+				 }
+				 //first part of message size
+				 case 2: {
+					 headerByteFound = true;
+					 break;
+				 }
+				 //both message size bytes read
+				 case 3 : {
+					 bodySize = unPackTwoBytes(header[2], header[3]);
+					 body = new byte[bodySize];
+					 headerByteFound = true;
+					 break;
+				 }
+				 //this should be the token
+				 case 4 : {
+					 if (readByte == getConstantByte("TOKEN")) {
+						 headerByteFound = true;
+					 } else {
+						 //token not found, communication problem - reset
+						 headerBytes = 0;
+					 }
+					 break;
+				 }
+				 //read body, or checksum if body done
+				 case 5 : {
+					 if (bodyBytes < bodySize) {
+						 body[bodyBytes] = readByte;
+						 bodyBytes++;
+					 } else {
+						 headerByteFound = true;
+					 }
+					 break;
+				 }
+				 //Should never happen
+				 default : {
+					 throw new AssertionError("ERROR: Unknown value for " +
+							 "headerBytes in read(). Value: " + headerBytes);
+				 }
+				 }
+					 
+					 
+				 
+				 //store header byte if found
+				 if (headerByteFound) {
+					 header[headerBytes] = readByte;
+					 headerBytes++;
+					 if (headerBytes == 6) {
+						 //All message read, pass on and stop reading
+						 //TODO Stop timeout timer
+						 response = new Message(header, body);
+						 break;
+					 }
+				 }
+			 }
+		}
+		return response;
+	}
+	
+	/**
+	 * Get the byte value of a STK_Message constant
+	 * @param in
+	 * @return
+	 */
+	private static byte getConstantByte(String in) {
+		return STK_Message.valueOf(in).getByteValue();
+	}
+	
+	/**
+	 * Read two unsigned bytes into an integer
+	 * @param high Most significant byte
+	 * @param low  Least significant byte
+	 * @return
+	 */
+	private static int unPackTwoBytes(byte high, byte low) {
+		int out = (decodeByte(high) << 8) | (decodeByte(low));
+		return out;
 	}
 	
 	/**
