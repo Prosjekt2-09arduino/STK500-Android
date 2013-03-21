@@ -15,12 +15,30 @@ public class Log {
 	
 	/** prints a msg on the UI screen **/
 	public void println(String msg){
-		Toast.makeText(ctxt, msg, Toast.LENGTH_SHORT).show();
+		final String out = msg;
+		main.runOnUiThread(new Runnable() {
+			
+			@Override
+			public void run() {
+				Toast.makeText(ctxt, out, Toast.LENGTH_SHORT).show();
+				
+			}
+		});
 	}
 	
 	public void printToConsole(String msg){
-		
-		main.printToConsole(msg);
+		final String out = msg;
+		main.runOnUiThread(new Runnable() {
+			
+			@Override
+			public void run() {
+				main.printToConsole(out);
+			}
+		});
+	}
+	
+	public void tag(String msg) {
+		android.util.Log.d("BT-for-STK", msg);
 	}
 
 }
