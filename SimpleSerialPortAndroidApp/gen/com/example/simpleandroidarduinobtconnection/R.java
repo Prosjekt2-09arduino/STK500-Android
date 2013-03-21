@@ -24,10 +24,11 @@ public final class R {
         public static final int ic_launcher=0x7f020000;
     }
     public static final class id {
-        public static final int action_settings=0x7f080006;
-        public static final int connect=0x7f080005;
+        public static final int action_settings=0x7f080007;
+        public static final int connect=0x7f080006;
         public static final int console=0x7f080001;
         public static final int consoleText=0x7f080000;
+        public static final int execute=0x7f080005;
         public static final int input=0x7f080003;
         public static final int inputText=0x7f080002;
         public static final int send=0x7f080004;

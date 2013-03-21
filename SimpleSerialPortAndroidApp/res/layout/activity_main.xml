@@ -26,10 +26,11 @@
              android:id="@+id/console"
              android:layout_width="fill_parent"
              android:layout_height="match_parent"
-             android:inputType="textMultiLine"
-             android:includeFontPadding="false"
+             android:layout_weight="1"
+             android:ems="10"
              android:gravity="top"
-              >
+             android:includeFontPadding="false"
+             android:inputType="textMultiLine" >
 
              <requestFocus />
          </EditText>
@@ -74,6 +75,13 @@
              android:layout_height="wrap_content"
              android:layout_weight="1"
              android:text="Send" />
+
+         <Button
+             android:id="@+id/execute"
+             android:layout_width="match_parent"
+             android:layout_height="wrap_content"
+             android:layout_weight="1"
+             android:text="Execute" />
 
          <Button
              android:id="@+id/connect"
