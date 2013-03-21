@@ -4,33 +4,42 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Looper;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
+import android.content.Context;
 import android.content.Intent;
-import android.util.Log;
 import android.view.Menu;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.view.View.OnFocusChangeListener;
 import android.widget.Button;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 public class MainActivity extends Activity {
 
 	private TextView input, console;
-	private Button send, connect;
+	private Button send, connect, execute;
 	private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
 	private BluetoothAdapter btAdapter = null;
 	private BluetoothSocket btSocket = null;
 	private OutputStream outStream = null;
-//	private static String address = "04:C0:6F:03:FE:7B";	//HUAWEI
+	//	private static String address = "04:C0:6F:03:FE:7B";	//HUAWEI
 	private static String address = "00:06:66:07:AF:93";	//HUAWEI
 	private String text = "";
+	Context ctx;
+	Log log;
+	Handler handler;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -41,6 +50,33 @@ public class MainActivity extends Activity {
 		console = (TextView) findViewById(R.id.console);
 		send = (Button) findViewById(R.id.send);
 		connect = (Button) findViewById(R.id.connect);
+		execute = (Button) findViewById(R.id.execute);
+		ctx = getBaseContext();
+		log = new Log(this, ctx);
+		handler = new Handler();
+		
+		
+		
+		
+		execute.setOnClickListener(new OnClickListener() {
+
+			@Override
+			public void onClick(View v) {
+
+				Runnable r = new Runnable(){
+
+					@Override
+					public void run() {
+						log.println("some message to UI screen (toast)");
+						log.printToConsole("some message to app console");
+						
+					}
+					
+				};
+				
+				new DirectExecutor().execute(r);
+			}
+		});
 
 		send.setOnClickListener(new OnClickListener() {
 
@@ -63,37 +99,39 @@ public class MainActivity extends Activity {
 				try {
 					btSocket = createBluetoothSocket(device);
 				} catch (IOException e1) {
-					text += "\n Failed to create BT socket";
-					console.setText(text);
+					log.printToConsole("\n Failed to create BT socket");
 				}
 
 				btAdapter.cancelDiscovery();
 
-				text += "\n...Connecting...";
-				console.setText(text);
+				log.printToConsole("\n...Connecting...");
+
 				try {
 					btSocket.connect();
-					text += "\n... Connection OK...";
-					console.setText(text);
+					log.printToConsole("\n... Connection OK...");
 				} catch (IOException e) {
 					try {
 						btSocket.close();
 					} catch (IOException e2) {
-						text += "\n Failed to close socket";
-						console.setText(text);
+						log.printToConsole("\n Failed to close socket");
 					}
 				}
-				console.setText("\n...Creating socket...");
+				log.printToConsole("\n...Creating socket...");
 
 				try {
 					outStream = btSocket.getOutputStream();
 				} catch (IOException e) {
-					text += "\n...Output stream creating failed...";
-					console.setText(text);
+					log.printToConsole("\n...Output stream creating failed...");
 				}
 			}
 		});
 	}
+	
+	class DirectExecutor implements Executor {
+		   public void execute(Runnable r) {
+		     r.run();
+		   
+		 }}
 
 	@Override
 	public boolean onCreateOptionsMenu(Menu menu) {
@@ -107,8 +145,8 @@ public class MainActivity extends Activity {
 				final Method  m = device.getClass().getMethod("createInsecureRfcommSocketToServiceRecord", new Class[] { UUID.class });
 				return (BluetoothSocket) m.invoke(device, MY_UUID);
 			} catch (Exception e) {
-				text += "\n Couldnt create insecure RFComm connection";
-				console.setText(text);
+
+				log.printToConsole("\n Couldnt create insecure RFComm connection");
 			}
 		}
 		return  device.createRfcommSocketToServiceRecord(MY_UUID);
@@ -145,11 +183,6 @@ public class MainActivity extends Activity {
 		}
 	}
 
-	private void errorExit(String title, String message){
-		Toast.makeText(getBaseContext(), title + " - " + message, Toast.LENGTH_LONG).show();
-		finish();
-	}
-
 	private void sendData(String message) {
 		byte[] msgBuffer = message.getBytes();
 
@@ -159,8 +192,17 @@ public class MainActivity extends Activity {
 			String msg = "";
 			if (address.equals("00:00:00:00:00:00")) 
 				msg += "\nCheck that the SPP UUID: \n" + MY_UUID.toString() + "\nexists on server.";
-			text += msg;
-			console.setText(text);   
+
+			log.printToConsole(msg);   
 		}
+	}
+
+	//	public static void printToConsoleStatic(MainActivity c, String msg){
+	//		c.printToConsole(msg);
+	//	}
+	//	
+	public void printToConsole(String msg){
+		text += msg;
+		console.setText(text);
 	}
 }
