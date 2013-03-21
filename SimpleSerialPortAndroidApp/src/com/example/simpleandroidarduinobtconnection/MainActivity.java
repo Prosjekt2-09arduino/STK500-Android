@@ -1,10 +1,13 @@
 package com.example.simpleandroidarduinobtconnection;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.util.UUID;
 import java.util.concurrent.Executor;
+
+import no.group09.stk500.STK500;
 
 import android.os.Build;
 import android.os.Bundle;
@@ -34,6 +37,7 @@ public class MainActivity extends Activity {
 	private BluetoothAdapter btAdapter = null;
 	private BluetoothSocket btSocket = null;
 	private OutputStream outStream = null;
+	private InputStream inputStream = null;
 	//	private static String address = "04:C0:6F:03:FE:7B";	//HUAWEI
 	private static String address = "00:06:66:07:AF:93";	//HUAWEI
 	private String text = "";
@@ -55,7 +59,7 @@ public class MainActivity extends Activity {
 		log = new Log(this, ctx);
 		handler = new Handler();
 		
-		
+		android.util.Log.d("BT-for-STK","App ready to connect");
 		
 		
 		execute.setOnClickListener(new OnClickListener() {
@@ -69,7 +73,7 @@ public class MainActivity extends Activity {
 					public void run() {
 						log.println("some message to UI screen (toast)");
 						log.printToConsole("some message to app console");
-						
+						STK500 p = new STK500(outStream, inputStream, (Object) log);
 					}
 					
 				};
@@ -116,13 +120,18 @@ public class MainActivity extends Activity {
 						log.printToConsole("\n Failed to close socket");
 					}
 				}
-				log.printToConsole("\n...Creating socket...");
 
 				try {
 					outStream = btSocket.getOutputStream();
 				} catch (IOException e) {
 					log.printToConsole("\n...Output stream creating failed...");
 				}
+				try {
+					inputStream = btSocket.getInputStream();
+				} catch (IOException e) {
+					log.printToConsole("\n...Input stream creation failed...");
+				}
+				log.printToConsole("\n...Sockets created...");
 			}
 		});
 	}
