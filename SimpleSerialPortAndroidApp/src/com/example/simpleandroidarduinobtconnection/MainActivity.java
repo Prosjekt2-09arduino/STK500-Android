@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
+import android.os.Message;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -39,7 +40,12 @@ public class MainActivity extends Activity {
 	private String text = "";
 	Context ctx;
 	Log log;
-	Handler handler;
+	
+	private Handler handler = new Handler() {
+		@Override
+		public void handleMessage(Message msg) {
+		}
+	};
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -51,33 +57,38 @@ public class MainActivity extends Activity {
 		send = (Button) findViewById(R.id.send);
 		connect = (Button) findViewById(R.id.connect);
 		execute = (Button) findViewById(R.id.execute);
+	
 		ctx = getBaseContext();
 		log = new Log(this, ctx);
-		handler = new Handler();
+
+		btAdapter = BluetoothAdapter.getDefaultAdapter();
 		
-		
-		
-		
+		initializeExecuteButton();
+		initializeSendButton();
+		initialiseConnectButton();
+		checkBTState();
+	}
+	
+	private void initializeExecuteButton(){
 		execute.setOnClickListener(new OnClickListener() {
 
 			@Override
 			public void onClick(View v) {
-
-				Runnable r = new Runnable(){
-
-					@Override
-					public void run() {
-						log.println("some message to UI screen (toast)");
-						log.printToConsole("some message to app console");
-						
-					}
-					
+				final Runnable runner = new Runnable(){
+				    public void run() {
+				    	log.println("some message to UI screen (toast)");
+				    	log.printToConsole("some message to app console");
+				        
+				    	handler.postDelayed(this, 1000);
+				    }
 				};
-				
-				new DirectExecutor().execute(r);
+
+				handler.postDelayed(runner, 1000);
 			}
 		});
-
+	}
+	
+	private void initializeSendButton(){
 		send.setOnClickListener(new OnClickListener() {
 
 			@Override
@@ -86,10 +97,9 @@ public class MainActivity extends Activity {
 				input.setText("");
 			}
 		});
-
-		btAdapter = BluetoothAdapter.getDefaultAdapter();
-		checkBTState();
-
+	}
+	
+	private void initialiseConnectButton(){
 		connect.setOnClickListener(new OnClickListener() {
 
 			@Override
@@ -126,12 +136,6 @@ public class MainActivity extends Activity {
 			}
 		});
 	}
-	
-	class DirectExecutor implements Executor {
-		   public void execute(Runnable r) {
-		     r.run();
-		   
-		 }}
 
 	@Override
 	public boolean onCreateOptionsMenu(Menu menu) {
@@ -205,4 +209,6 @@ public class MainActivity extends Activity {
 		text += msg;
 		console.setText(text);
 	}
+
+
 }
