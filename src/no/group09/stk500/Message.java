@@ -60,8 +60,8 @@ public class Message {
         completeMessage[3] = messageSize[1];
         completeMessage[4] = STK_Message.TOKEN.getByteValue();
 
-        for (int i = 5; i < body.length; i++) {
-            completeMessage[i] = body[i];
+        for (int i = 5; (i - 5) < body.length; i++) {
+            completeMessage[i] = body[i - 5];
         }
         byte[] messageWithoutChecksum = new byte[completeMessage.length - 1];
 
