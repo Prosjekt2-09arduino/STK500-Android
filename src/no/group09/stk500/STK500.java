@@ -22,7 +22,15 @@ public class STK500 {
 	public STK500 (BufferedOutputStream output, BufferedInputStream input, Object binaryFile) {
 		this.output = output;
 		this.input = input;
-		sequenceNumber = 0;
+		sequenceNumber = 1;
+		/*
+		 * To connect:
+		 * • CMD_SIGN_ON
+		 * • CMD_GET_PARAMETER, PARAM_TOPCARD_DETECT
+		 * • CMD_GET_PARAMETER, PARAM_HW_VER
+		 * • CMD_GET_PARAMETER, PARAM_SW_MAJOR
+		 * • CMD_GET_PARAMETER, PARAM_SW_MINOR
+		 */
 		System.out.println(getProgrammerVersion(10));
 	}
 	
