@@ -84,10 +84,8 @@ public class MainActivity extends Activity {
 
 					@Override
 					public void run() {
-						log.println("some message to UI screen (toast)");
-						log.printToConsole("some message to app console");
-						STK500 p = new STK500(outStream, inputStream, (Object) log);
-						log.tag("Protocol code stopped");
+						STK500 p = new STK500(outStream, inputStream, log);
+						log.debugTag("Protocol code stopped");
 						log.printToConsole("Protocol code stopped");
 						handler.sendEmptyMessage(0);
 					}

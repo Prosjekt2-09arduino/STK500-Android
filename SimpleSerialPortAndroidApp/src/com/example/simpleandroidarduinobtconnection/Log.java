@@ -1,9 +1,10 @@
 package com.example.simpleandroidarduinobtconnection;
 
+import no.group09.stk500.Logger;
 import android.content.Context;
 import android.widget.Toast;
 
-public class Log {
+public class Log implements Logger {
 
 	Context ctxt;
 	MainActivity main;
@@ -14,7 +15,7 @@ public class Log {
 	}
 	
 	/** prints a msg on the UI screen **/
-	public void println(String msg){
+	public void makeToast(String msg){
 		final String out = msg;
 		main.runOnUiThread(new Runnable() {
 			
@@ -37,7 +38,7 @@ public class Log {
 		});
 	}
 	
-	public void tag(String msg) {
+	public void debugTag(String msg) {
 		android.util.Log.d("BT-for-STK", msg);
 	}
 

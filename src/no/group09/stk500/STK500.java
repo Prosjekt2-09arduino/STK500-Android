@@ -1,28 +1,28 @@
 package no.group09.stk500;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.IOException;
+import java.io.*;
 import java.util.ArrayList;
-
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
+import java.util.Arrays;
 
 public class STK500 {
 	/**Size of message field without the message body**/
 	public static final int MESSAGE_HEADER_SIZE = 6;
 	
-	private BufferedOutputStream output;
-	private BufferedInputStream input;
+	private OutputStream output;
+	private InputStream input;
+	private Logger logger;
 	/**Set as int due to no unsigned byte in Java**/
 	private int sequenceNumber;
 	//TODO: Add field for binary file to program and add to constructor - determine field type
 	
 	//TODO: Incorporate Message class abstraction layer
 	
-	public STK500 (BufferedOutputStream output, BufferedInputStream input, Object binaryFile) {
+	public STK500 (OutputStream output, InputStream input, Logger logger) {
 		this.output = output;
 		this.input = input;
+		this.logger = logger;
 		sequenceNumber = 1;
+		logger.debugTag("Initializing programmer");
 		/*
 		 * To connect:
 		 * • CMD_SIGN_ON
@@ -31,7 +31,10 @@ public class STK500 {
 		 * • CMD_GET_PARAMETER, PARAM_SW_MAJOR
 		 * • CMD_GET_PARAMETER, PARAM_SW_MINOR
 		 */
-		System.out.println(getProgrammerVersion(10));
+		//TODO No retries until timeouts are implemented
+		String ver = getProgrammerVersion(0);
+		logger.debugTag(ver);
+		logger.printToConsole(ver);
 	}
 	
 	/**
@@ -74,7 +77,7 @@ public class STK500 {
 	}
 	
 	private void EnterProgrammingMode() {
-		throw new NotImplementedException();
+		throw new RuntimeException("Not yet implemented");
 	}
 	
 	/**
@@ -95,6 +98,9 @@ public class STK500 {
 	private void send(byte[] body) throws IOException {
 		Message message = new Message(getNewSequenceNumber(), body);
 		byte[] bytes = message.getCompleteMessage();
+		String txt = "Sending bytes: " + Arrays.toString(bytes);
+		logger.debugTag(txt);
+		logger.printToConsole(txt);
 		output.write(bytes, 0, bytes.length);
 	}
 
@@ -150,6 +156,7 @@ public class STK500 {
 		/**Total number of bytes in the body to read**/
 		int bodySize = 0;
 		
+		logger.debugTag("Preparing to read");
 		//Stops when end of stream is found.
 		//Also broken after the switch statement if full message read
 		//TODO Add the protocol timeout restrictions
@@ -157,6 +164,7 @@ public class STK500 {
 			 readResult = input.read();
 			 if (readResult == -1) {
 				 //end of stream
+				 logger.debugTag("End of stream encountered");
 				 //TODO When does this happen? How to deal with it?
 			 } else {
 				 byte readByte = (byte) readResult;
@@ -165,6 +173,7 @@ public class STK500 {
 				 //look for start byte
 				 case 0 : {
 					 if (readByte == getConstantByte("MESSAGE_START")) {
+						 logger.debugTag("Start byte read");
 						 headerByteFound = true;
 					 } else {
 						 //start byte not received, keep going
@@ -197,10 +206,12 @@ public class STK500 {
 				 //this should be the token
 				 case 4 : {
 					 if (readByte == getConstantByte("TOKEN")) {
+						 logger.debugTag("Token byte read");
 						 headerByteFound = true;
 					 } else {
 						 //token not found, communication problem - reset
 						 headerBytes = 0;
+						 logger.debugTag("Expected token, got something else. Resetting.");
 					 }
 					 break;
 				 }
@@ -230,6 +241,7 @@ public class STK500 {
 					 if (headerBytes == 6) {
 						 //All message read, pass on and stop reading
 						 //TODO Stop timeout timer
+						 logger.debugTag("Read full message!");
 						 response = new Message(header, body);
 						 break;
 					 }
