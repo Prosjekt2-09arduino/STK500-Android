@@ -41,7 +41,8 @@ public class MainActivity extends Activity {
 	private OutputStream outStream = null;
 	private InputStream inputStream = null;
 	//	private static String address = "04:C0:6F:03:FE:7B";	//HUAWEI
-	private static String address = "00:06:66:07:AF:93";	//HUAWEI
+	//private static String address = "00:06:66:07:AF:93";	//ArduinoBT
+	private static String address = "00:13:02:20:93:35"; //iJacketClone
 	private String text = "";
 	Context ctx;
 	Logger log;
