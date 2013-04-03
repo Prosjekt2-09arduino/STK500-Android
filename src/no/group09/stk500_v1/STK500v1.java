@@ -20,6 +20,28 @@ public class STK500v1 {
 	}
 	
 	
+	private void checkIfStarterKitPrestent() {
+		
+	}
+	
+	private void getSynchronization() {
+		
+	}
+	
+	private void getParameterValue() {
+		
+	}
+	
+	private void setParameterValue() {
+		
+	}
+	
+	private void setDeviceProgrammingParameters() {
+	}
+
+	
+	
+	
 	/**
 	 * Read two unsigned bytes into an integer
 	 * @param high Most significant byte
