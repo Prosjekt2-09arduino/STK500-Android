@@ -21,24 +21,67 @@ public class STK500v1 {
 	
 	
 	private void checkIfStarterKitPrestent() {
-		
 	}
 	
 	private void getSynchronization() {
-		
 	}
 	
 	private void getParameterValue() {
-		
 	}
 	
 	private void setParameterValue() {
-		
 	}
 	
 	private void setDeviceProgrammingParameters() {
 	}
 
+	private void enterProgramMode() {
+	}
+	
+	private void leaveProgramMode() {
+	}
+	
+	private void chipErase() {
+	}
+	
+	private void checkForAddressAutoincrement() {
+	}
+	
+	private void LoadAddress() {
+	}
+	
+	private void programFlashMemory() {
+	}
+	
+	private void programDataMemory() {
+	}
+	
+	private void programLockBits() {
+	}
+	
+	private void programPage() {
+	}
+
+	private void readFlashMemory() {
+	}
+	
+	private void readDataMemory() {
+	}
+	
+	private void readLockBits() {
+	}
+
+	private void readPage() {
+	}
+	
+	private void readSignatureBits() {
+	}
+	
+	private void readOscillatorCalibrationByte() {
+	}
+	
+	private void universalCommand() {
+	}
 	
 	
 	
