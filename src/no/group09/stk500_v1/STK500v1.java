@@ -29,7 +29,12 @@ public class STK500v1 {
 		log.printToConsole(version);
 	}
 	
-	
+	/**
+	 * Attempt to handshake with the Arduino. The method is modified to account for
+	 * the Optiboot loader not returning a version string, just the
+	 * in sync and OK bytes.
+	 * @return -1 on failure and Arduino otherwise
+	 */
 	private String checkIfStarterKitPresent() {
 		logger.debugTag("Detect programmer");
 		String version = "";
@@ -68,7 +73,7 @@ public class STK500v1 {
 					continue;
 				} else if (responseIndex == 7 && readByte == ConstantsStk500v1.STK_OK) {
 					//index too high for array writing, return string if all OK
-					version = "Arduino (HAX)";
+					version = "Arduino";
 					//version = String.copyValueOf(response);
 					return version;
 				} else if (responseIndex >= 0 && responseIndex < 7) {
