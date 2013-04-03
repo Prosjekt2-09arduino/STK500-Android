@@ -7,7 +7,8 @@ import java.lang.reflect.Method;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
-import no.group09.stk500.STK500;
+import no.group09.stk500_v1.Logger;
+import no.group09.stk500_v1.STK500v1;
 
 import android.os.Build;
 import android.os.Bundle;
@@ -43,7 +44,7 @@ public class MainActivity extends Activity {
 	private static String address = "00:06:66:07:AF:93";	//HUAWEI
 	private String text = "";
 	Context ctx;
-	Log log;
+	Logger log;
 	
 	private Handler handler = new Handler() {
 		@Override
@@ -84,7 +85,8 @@ public class MainActivity extends Activity {
 
 					@Override
 					public void run() {
-						STK500 p = new STK500(outStream, inputStream, log);
+						byte[] binaryFile = new byte[10];
+						STK500v1 p = new STK500v1(outStream, inputStream, log, binaryFile);
 						log.debugTag("Protocol code stopped");
 						log.printToConsole("Protocol code stopped");
 						handler.sendEmptyMessage(0);

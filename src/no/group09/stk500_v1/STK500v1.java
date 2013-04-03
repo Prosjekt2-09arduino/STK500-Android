@@ -3,7 +3,6 @@ package no.group09.stk500_v1;
 import java.io.InputStream;
 import java.io.OutputStream;
 
-import no.group09.stk500_v2.Logger;
 
 public class STK500v1 {
 	private OutputStream output;
@@ -11,12 +10,12 @@ public class STK500v1 {
 	private Logger logger;
 	private byte[] binary;
 	
-	public STK500v1 (OutputStream output, InputStream input, Logger logger, byte[] binary) {
+	public STK500v1 (OutputStream output, InputStream input, Logger log, byte[] binary) {
 		this.output = output;
 		this.input = input;
-		this.logger = logger;
+		this.logger = log;
 		this.binary = binary;
-		logger.debugTag("Initializing programmer");
+		log.debugTag("Initializing programmer");
 	}
 	
 	

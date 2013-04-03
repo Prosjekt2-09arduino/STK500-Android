@@ -1,6 +1,6 @@
 package com.example.simpleandroidarduinobtconnection;
 
-import no.group09.stk500.Logger;
+import no.group09.stk500_v1.Logger;
 import android.content.Context;
 import android.widget.Toast;
 
