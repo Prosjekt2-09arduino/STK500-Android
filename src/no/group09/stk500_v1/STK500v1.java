@@ -7,6 +7,8 @@ import java.util.Arrays;
 
 import javax.xml.ws.Response;
 
+import no.group09.stk500_v2.STK_Message;
+
 import com.sun.corba.se.impl.orbutil.closure.Constant;
 import com.sun.xml.internal.bind.v2.runtime.reflect.opt.Const;
 
@@ -291,7 +293,45 @@ public class STK500v1 {
 	private void universalCommand() {
 	}
 	
-	private void readFlashMemory() {
+	/**
+	 * Read one word from FLASH memory.
+	 * 
+	 * @return an byte array with the response from the selected device on the format
+	 * [Resp_STK_INSYNC, flash_low, flash_high, Resp_STK_OK] or 
+	 * [Resp_STK_NOSYNC] (If no Sync_CRC_EOP received). If the response does not
+	 * match any of the above, something went wrong and the method returns null.
+	 * The caller should then retry.
+	 */
+	private byte[] readFlashMemory() {
+		
+		byte[] readCommand = new byte[2];
+		byte[] in = new byte[4];
+		
+		readCommand[0] = ConstantsStk500v1.STK_READ_FLASH;
+		readCommand[1] = ConstantsStk500v1.CRC_EOP;
+		
+		try {
+			output.write(readCommand);
+		} catch (IOException e) {
+			logger.debugTag("Could not write output read command in readFlashMemory");
+			e.printStackTrace();
+		}
+		
+		int numberOfBytes = 0;
+		try {
+			numberOfBytes = input.read(in);
+		} catch (IOException e) {
+			logger.debugTag("Could not read input in readFlashMemory");
+			e.printStackTrace();
+		}
+		
+		if (numberOfBytes == 4 && in[0] == ConstantsStk500v1.STK_INSYNC 
+				&& in[3] == ConstantsStk500v1.STK_OK) return in;
+		
+		else if (numberOfBytes == 1 && in[0] == ConstantsStk500v1.STK_NOSYNC) return in;
+		
+		//If the method does not return in one of the above, something went wrong
+		return null;
 	}
 	
 	/**
