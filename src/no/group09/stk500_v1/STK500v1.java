@@ -179,12 +179,27 @@ public class STK500v1 {
 	private void checkForAddressAutoincrement() {
 	}
 	
-	private void LoadAddress() {
+	private void loadAddress(int address) {
+		byte[] addr = packTwoBytes(address);
+		
+		
 	}
 	
-	private void programFlashMemory() {
+	/**
+	 * Takes an integer, splits it into bytes, and puts it in an byte array
+	 * 
+	 * @param integer the integer that is to be split
+	 * @return an array with the integer as bytes
+	 */
+	private byte[] packTwoBytes(int integer) {
+		byte[] bytes = new byte[2];
+        //store the 8 least significant bits
+        bytes[1] = (byte) (integer & 0xFF);
+        //store the next 8 bits
+        bytes[0] = (byte) ((integer >> 8) & 0xFF);
+		return bytes;
 	}
-	
+		
 	private void programDataMemory() {
 	}
 	
@@ -192,9 +207,6 @@ public class STK500v1 {
 	}
 	
 	private void programPage() {
-	}
-
-	private void readFlashMemory() {
 	}
 	
 	private void readDataMemory() {
@@ -213,6 +225,86 @@ public class STK500v1 {
 	}
 	
 	private void universalCommand() {
+	}
+	
+	private void readFlashMemory() {
+	}
+	
+	/**
+	 * Method used to program one word to the flash memory.
+	 * 
+	 * @param flash_low first byte of the word to be programmed.
+	 * @param flash_high last byte of the word to be programmed.
+	 * 
+	 * @return true if the method was able to program the word to the flash memory,
+	 * false if not.
+	 */
+	private boolean programFlashMemory(byte flash_low, byte flash_high) {
+		
+		byte[] uploadFile = new byte[4];
+		
+		uploadFile[0] = ConstantsStk500v1.STK_PROG_FLASH;
+		uploadFile[1] = flash_low;
+		uploadFile[2] = flash_high;
+		uploadFile[3] = ConstantsStk500v1.CRC_EOP;
+		
+		try {
+			output.write(uploadFile);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		int intInput = -1;
+		try {
+			intInput = input.read();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		if (intInput == -1) {
+			logger.debugTag("End of stream encountered in programFlashMemory");
+			return false;
+		}
+		
+		//Input is not equal to -1. Cast to byte
+		byte byteInput = (byte)intInput;
+		
+		if (intInput == ConstantsStk500v1.STK_INSYNC){
+			try {
+				intInput = input.read();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			
+			if (intInput == -1) {
+				logger.debugTag("End of stream encountered in programFlashMemory");
+				return false;
+			}
+			//Input is not equal to -1. Cast to byte
+			byteInput = (byte)intInput;
+			
+			if (byteInput == ConstantsStk500v1.STK_OK) {
+				
+				//Two bytes sent. Respons OK. Return true
+				return true;
+			}
+			logger.debugTag("Reponse was STK_INSYNC but not STK_OK in programFlashMemory");
+			return false;
+		}
+		else {
+			logger.debugTag("Response was not STK_INSYNC programFlashMemory");
+			//Get synchronization
+			getSynchronization();
+			/*
+			 * Synchronization is in place. Return false to indicate that the
+			 * transfer was unsuccessful and it needs to try again with the same
+			 * values.
+			 */
+			return false;
+		}
 	}
 	
 	/**
@@ -247,67 +339,22 @@ public class STK500v1 {
 				flash_high = 0;
 			}
 			
-			uploadFile[0] = ConstantsStk500v1.STK_PROG_FLASH;
-			uploadFile[1] = flash_low;
-			uploadFile[2] = flash_high;
-			uploadFile[3] = ConstantsStk500v1.CRC_EOP;
+			//Program the flash and store the result
+			boolean programFlashSuccess = programFlashMemory(flash_low, flash_high);
 			
-			try {
-				output.write(uploadFile);
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+			if (programFlashSuccess) {
+				//Increment position in binary array
+				i += 2;
+				//Two bytes sent. Response OK. Repeat.
+				continue;
 			}
-			
-			int intInput = -1;
-			try {
-				intInput = input.read();
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-			
-			if (intInput == -1) {
-				logger.debugTag("End of stream encountered in uploadFile");
-				break;
-			}
-			
-			//Input is not equal to -1. Cast to byte
-			byte byteInput = (byte)intInput;
-			
-			if (intInput == ConstantsStk500v1.STK_INSYNC){
-				try {
-					intInput = input.read();
-				} catch (IOException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-				
-				if (intInput == -1) {
-					logger.debugTag("End of stream encountered in uploadFile");
-					break;
-				}
-				//Input is not equal to -1. Cast to byte
-				byteInput = (byte)intInput;
-				
-				if (byteInput == ConstantsStk500v1.STK_OK) {
-					//Increment position in binary array
-					i += 2;
-					//Two bytes sent. Respons OK. Repeat.
-					continue;
-				}
-			}
-			else if (intInput == ConstantsStk500v1.STK_NOSYNC) {
-				logger.debugTag("Response was STK_NOSYNC in uploadFile");
-				//Get synchronization
-				getSynchronization();
-				//Synchronization is in place. Try again.
+			else if (!programFlashSuccess) {
+				//Not able to program flash. Retry.
+				logger.debugTag("programFlashMemory returned false. Unable to program flash. Retrying");
 				continue;
 			}
 		}
 	}
-	
-	
 
 	/**
 	 * Read two unsigned bytes into an integer
