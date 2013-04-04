@@ -439,7 +439,6 @@ public class STK500v1 {
 					} else {
 						return false;
 					}
-					break;
 				}
 				default : {
 					throw new IllegalArgumentException("Unhandled argument:" + command);
