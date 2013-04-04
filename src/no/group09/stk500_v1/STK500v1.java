@@ -141,10 +141,22 @@ public class STK500v1 {
 	private void chipErase() {
 	}
 	
-	private void checkForAddressAutoincrement() {
+	private boolean checkForAddressAutoincrement() {
 		
-//		byte[] command
+		byte[] command = new byte[2];
 		
+		command[0] = ConstantsStk500v1.STK_CHECK_AUTOINC;
+		command[1] = ConstantsStk500v1.CRC_EOP;
+		
+		try {
+			output.write(command);
+		} catch (IOException e) {
+			logger.debugTag("Unable to write output in checkForAddressAutoincrement");
+			e.printStackTrace();
+			return false;
+		}
+		
+		return checkInput();
 	}
 	
 	/**
