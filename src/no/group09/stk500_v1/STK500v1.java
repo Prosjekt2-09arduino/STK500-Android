@@ -113,47 +113,12 @@ public class STK500v1 {
 			try {
 				output.write(getSyncCommand);
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
+				logger.debugTag("Unable to write output in getSynchronization");
 				e.printStackTrace();
+				return false;
 			}
-			
-			int response = -1;
-			try {
-				response = input.read();
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-			
-			if (response == -1) {
-				logger.debugTag("End of stream encountered in getSynchronization");
-				break;
-			}
-			
-			else {
-				byte byteResponse = (byte) response;
-				
-				if (byteResponse == ConstantsStk500v1.STK_INSYNC) {
-					try {
-						response = input.read();
-					} catch (IOException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-					
-					if (response == -1) {
-						logger.debugTag("End of stream encountered in getSynchronization");
-						break;
-					}
-					//Input is not equal to -1. Cast to byte
-					byteResponse = (byte)response;
-					
-					if (byteResponse == ConstantsStk500v1.STK_OK) {
-						logger.debugTag("Back in sync. Returning");
-						return true;
-					}
-				}
-			}
+			//If the response is valid, return. If not, continue
+			if (checkInput()) return true;
 		}
 		return false;
 	}
@@ -177,6 +142,9 @@ public class STK500v1 {
 	}
 	
 	private void checkForAddressAutoincrement() {
+		
+//		byte[] command
+		
 	}
 	
 	/**
@@ -200,8 +168,9 @@ public class STK500v1 {
 		try {
 			output.write(loadAddr);
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
+			logger.debugTag("Unable to write output in loadAddress");
 			e.printStackTrace();
+			return false;
 		}
 		
 		return checkInput();
@@ -266,8 +235,9 @@ public class STK500v1 {
 		try {
 			intInput = input.read();
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
+			logger.debugTag("Unable to read input in checkInput");
 			e.printStackTrace();
+			return false;
 		}
 		
 		if (intInput == -1) {
@@ -281,7 +251,7 @@ public class STK500v1 {
 			try {
 				intInput = input.read();
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
+				logger.debugTag("Unable to read input in checkInput");
 				e.printStackTrace();
 			}
 			
@@ -329,8 +299,9 @@ public class STK500v1 {
 		try {
 			output.write(uploadFile);
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
+			logger.debugTag("Unable to write output in programFlashMemory");
 			e.printStackTrace();
+			return false;
 		}
 		
 		return checkInput();
