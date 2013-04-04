@@ -132,10 +132,51 @@ public class STK500v1 {
 	private void setDeviceProgrammingParameters() {
 	}
 
-	private void enterProgramMode() {
+	/**
+	 * Enter programming mode. Set device and programming parameters before calling.
+	 */
+	private boolean enterProgramMode() {
+		//send command
+		byte[] command = new byte[] {
+			ConstantsStk500v1.STK_ENTER_PROGMODE, ConstantsStk500v1.CRC_EOP 	
+		};
+		
+		try {
+			output.write(command);
+		} catch (IOException e) {
+			logger.debugTag("Communication problem on sending request to enter programming mode");
+			return false;
+		}
+		
+		//check response
+		boolean ok = checkInput(true, ConstantsStk500v1.STK_ENTER_PROGMODE);
+		if (!ok) {
+			logger.debugTag("Unable to enter programming mode");
+		}
+		return ok;
 	}
 	
-	private void leaveProgramMode() {
+	/**
+	 * Leave programming mode.
+	 */
+	private boolean leaveProgramMode() {
+		//send command
+		byte[] command = new byte[] {
+				ConstantsStk500v1.STK_LEAVE_PROGMODE, ConstantsStk500v1.CRC_EOP
+		};
+		
+		try {
+			output.write(command);
+		} catch (IOException e) {
+			logger.debugTag("Communication problem on leaving programming mode");
+		}
+		
+		//check response
+		boolean ok = checkInput();
+		if (!ok) {
+			logger.debugTag("Unable to leave programming mode");
+		}
+		return ok;
 	}
 	
 	private void chipErase() {
@@ -234,6 +275,16 @@ public class STK500v1 {
 	}
 	
 	/**
+	 * Check input from the Arduino.
+	 * Uses checkInput(boolean checkCommand, byte command) internally
+	 * @return true if response is STK_INSYNC and STK_OK, false if not
+	 */
+	private boolean checkInput() {
+		return checkInput(false, (byte) 0);
+		
+	}
+	
+	/**
 	 * Method used to get and check input from the Arduino. It reads the input, and
 	 * check whether the response is STK_INSYNC and STK_OK, or STK_NOSYNC. If the
 	 * response is STK_INSYNC and STK_OK the operation was successful. If not 
@@ -241,7 +292,7 @@ public class STK500v1 {
 	 * 
 	 * @return true if response is STK_INSYNC and STK_OK, false if not.
 	 */
-	private boolean checkInput() {
+	private boolean checkInput(boolean checkCommand, byte command) {
 		
 		int intInput = -1;
 		try {
@@ -274,13 +325,35 @@ public class STK500v1 {
 			//Input is not equal to -1. Cast to byte
 			byteInput = (byte)intInput;
 			
-			if (byteInput == ConstantsStk500v1.STK_OK) {
+			//if this is a command expected to return other things in addition to sync and ok:
+			if (checkCommand) {
+				switch (command) {
+				case ConstantsStk500v1.STK_ENTER_PROGMODE : {
+					if (byteInput == ConstantsStk500v1.STK_NODEVICE) {
+						logger.debugTag("Error entering programming mode: Programmer not found");
+						//impossible to recover from
+						throw new RuntimeException("STK_NODEVICE returned");
+					} else if (byteInput == ConstantsStk500v1.STK_OK) {
+						return true;
+					} else {
+						return false;
+					}
+					break;
+				}
+				default : {
+					throw new IllegalArgumentException("Unhandled argument:" + command);
+				}
+				}
 				
-				//Two bytes sent. Response OK. Return true
-				return true;
+			} else {
+				if (byteInput == ConstantsStk500v1.STK_OK) {
+					
+					//Two bytes sent. Response OK. Return true
+					return true;
+				}
+				logger.debugTag("Reponse was STK_INSYNC but not STK_OK in checkInput");
+				return false;
 			}
-			logger.debugTag("Reponse was STK_INSYNC but not STK_OK in checkInput");
-			return false;
 		}
 		else {
 			logger.debugTag("Response was not STK_INSYNC in checkInput");
