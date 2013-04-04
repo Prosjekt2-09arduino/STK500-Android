@@ -521,4 +521,15 @@ public class STK500v1 {
 	private static int decodeByte(byte unsignedByte) {
 		return 0xFF & unsignedByte;
 	}
+	
+	/**
+	 * Reads a single byte, will be interrupted after a while
+	 * @return -1 if end of stream encountered, otherwise 0-255
+	 */
+	private int read() throws IOException {
+		//TODO Read in another thread and interrupt if timeout should occur
+		return input.read();
+	}
+	
+	
 }
