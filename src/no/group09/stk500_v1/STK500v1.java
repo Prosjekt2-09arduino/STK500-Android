@@ -7,6 +7,7 @@ import java.util.Arrays;
 
 import javax.xml.ws.Response;
 
+import com.sun.corba.se.impl.orbutil.closure.Constant;
 import com.sun.xml.internal.bind.v2.runtime.reflect.opt.Const;
 
 
@@ -141,7 +142,16 @@ public class STK500v1 {
 	private void chipErase() {
 	}
 	
+	/**
+	 * Check if the write/read address is automatically incremented while using 
+	 * the Cmnd_STK_PROG/READ_FLASH/EEPROM commands. Since STK500 always 
+	 * auto-increments the address, this command will always be successful.
+	 * 
+	 * @return true if response is STK_INSYNC and STK_OK, false if not.
+	 */
 	private boolean checkForAddressAutoincrement() {
+		
+		//TODO: Add call to this method.
 		
 		byte[] command = new byte[2];
 		
@@ -202,14 +212,65 @@ public class STK500v1 {
         bytes[0] = (byte) ((integer >> 8) & 0xFF);
 		return bytes;
 	}
+
+	/**
+	 * Method used to program one byte in EEPROM memory
+	 * 
+	 * @param data the byte of data that is to be programmed
+	 * @return true if response is STK_INSYNC and STK_OK, false if not.
+	 */
+	private boolean programDataMemory(byte data) {
 		
-	private void programDataMemory() {
+		byte[] programCommand = new byte[3];
+		
+		programCommand[0] = ConstantsStk500v1.STK_PROG_DATA;
+		programCommand[1] = data;
+		programCommand[2] = ConstantsStk500v1.CRC_EOP;
+		
+		try {
+			output.write(programCommand);
+		} catch (IOException e) {
+			logger.debugTag("Could not write output in programDataMemory");
+			e.printStackTrace();
+			return false;
+		}
+		
+		return checkInput();
 	}
 	
 	private void programLockBits() {
 	}
 	
-	private void programPage() {
+	/**
+	 * Download a block of data to the starterkit and program it in FLASH or 
+	 * EEPROM of the current device. The data block size should not be larger 
+	 * than 256 bytes. 
+	 * 
+	 * @param bytes_high 
+	 * @param bytes_low
+	 * @param writeFlash boolean indicating if it should be written to flash memory
+	 * or EEPROM. True = flash. False = EEPROM
+	 * @param data byte array of data
+	 */
+	private void programPage(byte bytes_high, byte bytes_low, boolean writeFlash, byte[] data) {
+		
+		byte[] programPage = new byte[6];
+		byte memtype;
+		
+		if (writeFlash) memtype = (byte)'F';
+		else memtype = (byte)'E';
+		
+		programPage[0] = ConstantsStk500v1.STK_PROG_PAGE;
+		programPage[1] = bytes_high;
+		programPage[2] = bytes_low;
+		programPage[3] = memtype;
+		
+		for (int i = 4; i < data.length; i++) {
+			programPage[i] = data[i];
+		}
+		programPage[data.length] = ConstantsStk500v1.CRC_EOP;
+		
+		
 	}
 	
 	private void readDataMemory() {
