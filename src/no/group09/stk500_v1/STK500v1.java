@@ -179,10 +179,32 @@ public class STK500v1 {
 	private void checkForAddressAutoincrement() {
 	}
 	
-	private void loadAddress(int address) {
+	/**
+	 * Load 16-bit address down to starterkit. This command is used to set the 
+	 * address for the next read or write operation to FLASH or EEPROM. Must 
+	 * always be used prior to Cmnd_STK_PROG_PAGE or Cmnd_STK_READ_PAGE.
+	 * 
+	 * @param address the address that is to be written as an int
+	 * 
+	 * @return true if it is OK to write the address, false if not.
+	 */
+	private boolean loadAddress(int address) {
 		byte[] addr = packTwoBytes(address);
+		byte[] loadAddr = new byte[4];
 		
+		loadAddr[0] = ConstantsStk500v1.STK_LOAD_ADDRESS;
+		loadAddr[1] = addr[1];
+		loadAddr[2] = addr[0];
+		loadAddr[3] = ConstantsStk500v1.CRC_EOP;
 		
+		try {
+			output.write(loadAddr);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		return checkInput();
 	}
 	
 	/**
@@ -231,6 +253,62 @@ public class STK500v1 {
 	}
 	
 	/**
+	 * Method used to get and check input from the Arduino. It reads the input, and
+	 * check whether the response is STK_INSYNC and STK_OK, or STK_NOSYNC. If the
+	 * response is STK_INSYNC and STK_OK the operation was successful. If not 
+	 * something went wrong.
+	 * 
+	 * @return true if response is STK_INSYNC and STK_OK, false if not.
+	 */
+	private boolean checkInput() {
+		
+		int intInput = -1;
+		try {
+			intInput = input.read();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		if (intInput == -1) {
+			logger.debugTag("End of stream encountered in checkInput");
+			return false;
+		}
+		
+		byte byteInput;
+		
+		if (intInput == ConstantsStk500v1.STK_INSYNC){
+			try {
+				intInput = input.read();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			
+			if (intInput == -1) {
+				logger.debugTag("End of stream encountered in checkInput");
+				return false;
+			}
+			//Input is not equal to -1. Cast to byte
+			byteInput = (byte)intInput;
+			
+			if (byteInput == ConstantsStk500v1.STK_OK) {
+				
+				//Two bytes sent. Response OK. Return true
+				return true;
+			}
+			logger.debugTag("Reponse was STK_INSYNC but not STK_OK in checkInput");
+			return false;
+		}
+		else {
+			logger.debugTag("Response was not STK_INSYNC in checkInput");
+			getSynchronization();
+			//Synchronization is in place, but the operation was not successful. Try again.
+			return false;
+		}
+	}
+	
+	/**
 	 * Method used to program one word to the flash memory.
 	 * 
 	 * @param flash_low first byte of the word to be programmed.
@@ -255,56 +333,7 @@ public class STK500v1 {
 			e.printStackTrace();
 		}
 		
-		int intInput = -1;
-		try {
-			intInput = input.read();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		
-		if (intInput == -1) {
-			logger.debugTag("End of stream encountered in programFlashMemory");
-			return false;
-		}
-		
-		//Input is not equal to -1. Cast to byte
-		byte byteInput = (byte)intInput;
-		
-		if (intInput == ConstantsStk500v1.STK_INSYNC){
-			try {
-				intInput = input.read();
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-			
-			if (intInput == -1) {
-				logger.debugTag("End of stream encountered in programFlashMemory");
-				return false;
-			}
-			//Input is not equal to -1. Cast to byte
-			byteInput = (byte)intInput;
-			
-			if (byteInput == ConstantsStk500v1.STK_OK) {
-				
-				//Two bytes sent. Respons OK. Return true
-				return true;
-			}
-			logger.debugTag("Reponse was STK_INSYNC but not STK_OK in programFlashMemory");
-			return false;
-		}
-		else {
-			logger.debugTag("Response was not STK_INSYNC programFlashMemory");
-			//Get synchronization
-			getSynchronization();
-			/*
-			 * Synchronization is in place. Return false to indicate that the
-			 * transfer was unsuccessful and it needs to try again with the same
-			 * values.
-			 */
-			return false;
-		}
+		return checkInput();
 	}
 	
 	/**
