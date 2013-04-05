@@ -28,6 +28,20 @@ public class STK500v1 {
 
 		//try to get programmer version
 		String version = checkIfStarterKitPresent();
+		
+		for (int i = 0; i < 10; i++) {
+			if (enterProgramMode()) {
+				logger.debugTag("The ardunino has entered programming mode. Trying to leave...");
+				for (int j = 0; j < 10; j++) {
+					if(leaveProgramMode()) {
+						logger.debugTag("The arduino has now left programming mode.");
+						break;
+					}
+				}
+				break;
+			}
+		}
+		
 		log.debugTag(version);
 		log.printToConsole(version);
 	}
@@ -133,10 +147,14 @@ public class STK500v1 {
 	}
 
 	private void setDeviceProgrammingParameters() {
+		
 	}
 
 	/**
 	 * Enter programming mode. Set device and programming parameters before calling.
+	 * 
+	 * @return true if the connected device was able to enter programming mode.
+	 * False if not.
 	 */
 	private boolean enterProgramMode() {
 		//send command
@@ -161,6 +179,8 @@ public class STK500v1 {
 
 	/**
 	 * Leave programming mode.
+	 * 
+	 * @return True if the arduino was able to leave programming mode. false if not.
 	 */
 	private boolean leaveProgramMode() {
 		//send command
@@ -482,7 +502,16 @@ public class STK500v1 {
 	 * Method used to get and check input from the Arduino. It reads the input, and
 	 * check whether the response is STK_INSYNC and STK_OK, or STK_NOSYNC. If the
 	 * response is STK_INSYNC and STK_OK the operation was successful. If not 
-	 * something went wrong.
+	 * something went wrong. <br><br>
+	 * 
+	 * If only STK_INSYNC and STK_OK is supposed to be returned from this method,
+	 * use {@link #checkInput()}
+	 * 
+	 * @param checkComman boolean used set if it is possible that this method
+	 * returns something else than STK_INSYNC and STK_OK. If this is possible,
+	 * set checkCommand to true.
+	 * @param command byte used to identify what command is sent to the connected
+	 * device. Only used if checkCommand is true.
 	 * 
 	 * @return true if response is STK_INSYNC and STK_OK, false if not.
 	 */
