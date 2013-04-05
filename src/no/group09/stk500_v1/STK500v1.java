@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Arrays;
+import java.util.concurrent.TimeoutException;
 
 import javax.xml.ws.Response;
 
@@ -524,12 +525,86 @@ public class STK500v1 {
 	
 	/**
 	 * Reads a single byte, will be interrupted after a while
+	 * @param timeout Milliseconds to wait before timeout
 	 * @return -1 if end of stream encountered, otherwise 0-255
+	 * @throws TimeoutException 
 	 */
-	private int read() throws IOException {
-		//TODO Read in another thread and interrupt if timeout should occur
-		return input.read();
+	private int read(long timeout) throws TimeoutException {
+		InterrupterableRead reader = new InterrupterableRead();
+		reader.run();
+		long now = System.currentTimeMillis();
+		//ask if reading is done
+		while (!reader.isDone()) {
+			if (System.currentTimeMillis() >= now + timeout) {
+				logger.debugTag("Timed out, attempting to stop thread...");
+				reader.stop = true;
+				reader.thread.interrupt();
+				throw new TimeoutException("Reading timed out");
+			}
+		}
+		return reader.getResult();
 	}
 	
-	
+	/**
+	 * Class wrapping input.read(). Set stop to true and interrupt the thread
+	 * to cancel the job.
+	 * Check isDone() before trying getResult().
+	 */
+	class InterrupterableRead implements Runnable {
+		public volatile boolean stop;
+		private volatile boolean done;
+		private int readByte;
+		private volatile Thread thread;
+		
+		/**
+		 * Get the result of the read operation. If called before the job is done,
+		 * an IllegalStateException will be thrown.
+		 * @return -1 if end of stream encountered, otherwise 0 to 255
+		 * @throws IllegalStateException
+		 */
+		public synchronized int getResult() throws IllegalStateException {
+			if (done) {
+				return readByte;
+			} else {
+				throw new IllegalStateException("Cannot return result; Job not done");
+			}
+		}
+		
+		/**
+		 * Check whether the job is done and the result can be retrieved.
+		 */
+		public boolean isDone() {
+			return done;
+		}
+
+		@Override
+		public void run() {
+			stop = false;
+			done = false;
+			readByte = -1;
+			thread = Thread.currentThread();
+			
+			while (!stop && !done) {
+				if (!Thread.currentThread().isInterrupted()) {
+					try {
+						readByte = input.read();
+						done = true;
+						break;
+					} catch (IOException e) {
+						logger.debugTag("Communication problem reading");
+					}
+				//stop if timed out
+				} else if (stop) {
+					logger.debugTag("Reading timed out");
+					break;
+				//continue if other reason
+				} else {
+					logger.debugTag("Error: Reading unexpectedly interrupted");
+					//reset flag
+					Thread.interrupted();
+				}
+			}
+		}
+		
+	}
 }
