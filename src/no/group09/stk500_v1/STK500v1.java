@@ -287,10 +287,11 @@ public class STK500v1 {
 	/**
 	 * Download a block of data to the starterkit and program it in FLASH or 
 	 * EEPROM of the current device. The data block size should not be larger 
-	 * than 256 bytes. 
+	 * than 256 bytes. bytes_high and bytes_low
+	 * are part of an integer that describes the address to be written/read
 	 * 
-	 * @param bytes_high 
-	 * @param bytes_low
+	 * @param bytes_high most significant byte of the address
+	 * @param bytes_low least significant byte of the address
 	 * @param writeFlash boolean indicating if it should be written to flash memory
 	 * or EEPROM. True = flash. False = EEPROM
 	 * @param data byte array of data
@@ -312,8 +313,6 @@ public class STK500v1 {
 			programPage[i] = data[i];
 		}
 		programPage[data.length] = ConstantsStk500v1.CRC_EOP;
-
-
 	}
 
 
@@ -330,8 +329,60 @@ public class STK500v1 {
 	private void universalCommand() {
 	}
 
-	private void readPage() {
+	/**
+	 * Read a block of data from FLASH or EEPROM of the current device. The data
+	 * block size should not be larger than 256 bytes. bytes_high and bytes_low
+	 * are part of an integer that describes the address to be written/read
+	 * 
+	 * @param bytes_high most significant byte of the address
+	 * @param bytes_low least significant byte of the address
+	 * @param writeFlash boolean indicating if it should be written to flash memory
+	 * or EEPROM. True = flash. False = EEPROM 
+	 * 
+	 * @return an byte array with the response from the selected device on the format
+	 * [Resp_STK_INSYNC, data, Resp_STK_OK] or 
+	 * [Resp_STK_NOSYNC] (If no Sync_CRC_EOP received). If the response does not
+	 * match any of the above, something went wrong and the method returns null.
+	 * The caller should then retry.
+	 */
+	private byte[] readPage(byte bytes_high, byte bytes_low, boolean writeFlash) {
 		
+		byte[] readCommand = new byte[5];
+		byte[] in = new byte[3];
+		byte memtype;
+		
+		if (writeFlash) memtype = (byte)'F';
+		else memtype = (byte)'E';
+		
+		readCommand[0] = ConstantsStk500v1.STK_READ_PAGE;
+		readCommand[1] = bytes_high;
+		readCommand[2] = bytes_low;
+		readCommand[3] = memtype;
+		readCommand[4] = ConstantsStk500v1.CRC_EOP;
+		
+		try {
+			output.write(readCommand);
+		} catch (IOException e) {
+			logger.debugTag("Could not write output read command in readPage");
+			e.printStackTrace();
+		}
+		
+		int numberOfBytes = 0;
+		
+		try {
+			input.read(in);
+		} catch (IOException e) {
+			logger.debugTag("Could not read input in readPage");
+			e.printStackTrace();
+		}
+		
+		if (numberOfBytes == 3 && in[0] == ConstantsStk500v1.STK_INSYNC &&
+				in[2] == ConstantsStk500v1.STK_OK) return in;
+		
+		else if (numberOfBytes == 1 && in[0] == ConstantsStk500v1.STK_NOSYNC) return in;
+		
+		//If the method does not return in one of the above, something went wrong
+		return null;
 	}
 
 	/**
