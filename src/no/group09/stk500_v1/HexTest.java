@@ -35,15 +35,15 @@ public class HexTest {
 		
 //		System.out.println("#############");
 //		System.out.println("Line 1:");
-		byte[] testArray = hex.getHexLine(0);
 		
+		byte[] testArray = hex.getHexLine(0);
 		System.out.println("#### LINE 0");
 		for (int i = 0; i < testArray.length; i++) {
 			System.out.println(testArray[i]);
 		}
 		
-		byte[] testArray1 = hex.getHexLine(1);
 		
+		byte[] testArray1 = hex.getHexLine(1);
 		System.out.println("#### LINE 1");
 		for (int i = 0; i < testArray.length; i++) {
 			System.out.println(testArray1[i]);

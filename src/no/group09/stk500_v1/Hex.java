@@ -55,7 +55,7 @@ public class Hex {
 	 * @return true if the hex file is correct.
 	 */
 	private boolean splitHex(byte[] subHex) {
-		byte[] tempHex = new byte[maxBytesOnLine];
+		byte[] tempHex = new byte[maxBytesOnLine-3]; // we do not need start byte, checksum and record
 		
 //		If no bytes left
 		if(subHex.length == 0) {
@@ -76,6 +76,8 @@ public class Hex {
 			return true;
 		}
 		else {
+			//TODO: need to verify checksum here
+			
 			tempHex[0] = subHex[1];	// size
 			tempHex[1] = subHex[2];	// start address
 			tempHex[2] = subHex[3];	// end address
@@ -84,12 +86,12 @@ public class Hex {
 //			data
 			int dataLength = tempHex[0];
 			
-			for (int i = 5; i < dataLength+5; i++) {
-				tempHex[i] = subHex[i];
+			for (int i = 3; i < dataLength+3; i++) {
+				tempHex[i] = subHex[i+2];
 			}
 			
 			tempHex[3+dataLength] = subHex[5+dataLength];	// checksum
-			System.out.println("Checksum: " + tempHex[3+dataLength]);
+//			System.out.println("Checksum: " + tempHex[3+dataLength]);
 			
 //			for(int i=0; i<dataLength+6; i++) {
 //				binary[line][i] = tempHex[i];
@@ -110,21 +112,21 @@ public class Hex {
 	 * @param line
 	 * @return one line from hex, including size, address (high + low) and data.
 	 */
-	private byte[] formatHexLine(int line)
+	private byte[] formatHexLine(int l)
 	{
 		byte tempBinary[] = new byte[maxBytesOnLine];
 		
 		//Check if the line is out of bounds
-		if(line <= this.line) {
-			int length = binary[line][0];
+		if(l <= line) {
+			int length = binary[l][0];
 			
-			tempBinary[0] = binary[line][0];	// Length
-			tempBinary[1] = binary[line][1];	// Address 1
-			tempBinary[2] = binary[line][2];	// Address 2
+			tempBinary[0] = binary[l][0];	// Length
+			tempBinary[1] = binary[l][1];	// Address 1
+			tempBinary[2] = binary[l][2];	// Address 2
 			
 			//Data
 			for(int i=3; i<length+2; i++) {
-				tempBinary[i] = binary[line][i];
+				tempBinary[i] = binary[l][i];
 			}
 		}
 		
