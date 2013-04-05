@@ -5,14 +5,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Arrays;
 
-import javax.xml.ws.Response;
-
-import no.group09.stk500_v2.STK_Message;
-
-import com.sun.corba.se.impl.orbutil.closure.Constant;
-import com.sun.xml.internal.bind.v2.runtime.reflect.opt.Const;
-
-
 public class STK500v1 {
 	private OutputStream output;
 	private InputStream input;
