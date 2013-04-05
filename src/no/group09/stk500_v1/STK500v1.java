@@ -21,16 +21,18 @@ public class STK500v1 {
 
 		//try to get programmer version
 		String version = checkIfStarterKitPresent();
+		if (!version.equals("Arduino")) return;
 		
 		for (int i = 0; i < 10; i++) {
+			logger.debugTag("Number of tries: " + i);
 			if (enterProgramMode()) {
 				logger.debugTag("The ardunino has entered programming mode. Trying to leave...");
-				for (int j = 0; j < 10; j++) {
-					if(leaveProgramMode()) {
-						logger.debugTag("The arduino has now left programming mode.");
-						break;
-					}
-				}
+//				for (int j = 0; j < 10; j++) {
+//					if(leaveProgramMode()) {
+//						logger.debugTag("The arduino has now left programming mode.");
+//						break;
+//					}
+//				}
 				break;
 			}
 		}
@@ -68,7 +70,7 @@ public class STK500v1 {
 			int readResult = 0;
 			byte readByte;
 			while (readResult >= 0) {
-				readResult = input.read();
+				readResult = read(2500);
 				if (readResult == -1) {
 					//TODO: Discover when/if this happens
 					logger.debugTag("End of stream encountered in checkIfStarterKitPresent()");
@@ -100,8 +102,8 @@ public class STK500v1 {
 					break;
 				}
 			}
-		} catch (IOException e) {
-			logger.debugTag("Communication problem: Can't receive programmer version");
+		} catch (TimeoutException e) {
+			logger.debugTag("Timeout in checkIfStarterkitPresent!");
 		}
 
 		return version;
@@ -511,12 +513,12 @@ public class STK500v1 {
 	private boolean checkInput(boolean checkCommand, byte command) {
 
 		int intInput = -1;
+		
 		try {
-			intInput = input.read();
-		} catch (IOException e) {
-			logger.debugTag("Unable to read input in checkInput");
-			e.printStackTrace();
-			return false;
+			read(10000);
+//			intInput = input.read();
+		} catch (TimeoutException e) {
+			logger.debugTag("Timeout in checkInput!");
 		}
 
 		if (intInput == -1) {
@@ -528,16 +530,17 @@ public class STK500v1 {
 
 		if (intInput == ConstantsStk500v1.STK_INSYNC){
 			try {
-				intInput = input.read();
-			} catch (IOException e) {
-				logger.debugTag("Unable to read input in checkInput");
-				e.printStackTrace();
+				read(10000);
+//				intInput = input.read();
+			} catch (TimeoutException e) {
+				logger.debugTag("Timeout in checkInput!");
 			}
 
 			if (intInput == -1) {
 				logger.debugTag("End of stream encountered in checkInput");
 				return false;
 			}
+			
 			//Input is not equal to -1. Cast to byte
 			byteInput = (byte)intInput;
 
@@ -683,15 +686,15 @@ public class STK500v1 {
 	 * @throws TimeoutException 
 	 */
 	private int read(long timeout) throws TimeoutException {
+		long now = System.currentTimeMillis();
 		InterrupterableRead reader = new InterrupterableRead();
 		reader.run();
-		long now = System.currentTimeMillis();
 		//ask if reading is done
 		while (!reader.isDone()) {
 			if (System.currentTimeMillis() >= now + timeout) {
 				logger.debugTag("Timed out, attempting to stop thread...");
 				reader.stop = true;
-				reader.thread.interrupt();
+				reader.thread.destroy();
 				throw new TimeoutException("Reading timed out");
 			}
 		}
@@ -738,6 +741,7 @@ public class STK500v1 {
 			thread = Thread.currentThread();
 			
 			while (!stop && !done) {
+				if (stop) logger.debugTag("Ask to stop");
 				if (!Thread.currentThread().isInterrupted()) {
 					try {
 						readByte = input.read();
@@ -745,6 +749,7 @@ public class STK500v1 {
 						break;
 					} catch (IOException e) {
 						logger.debugTag("Communication problem reading");
+						break;
 					}
 				//stop if timed out
 				} else if (stop) {
@@ -753,8 +758,7 @@ public class STK500v1 {
 				//continue if other reason
 				} else {
 					logger.debugTag("Error: Reading unexpectedly interrupted");
-					//reset flag
-					Thread.interrupted();
+					break;
 				}
 			}
 		}
