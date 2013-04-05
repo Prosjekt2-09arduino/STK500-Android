@@ -11,13 +11,23 @@ public class STK500v1 {
 	private InputStream input;
 	private Logger logger;
 	private byte[] binary;
+	private ReadWrapper readWrapper;
+	private Thread readWrapperThread;
 
 	public STK500v1 (OutputStream output, InputStream input, Logger log, byte[] binary) {
 		this.output = output;
 		this.input = input;
 		this.logger = log;
 		this.binary = binary;
+		logger.debugTag("Initializing protocol code");
+		
+		readWrapper = new ReadWrapper(input, log);
+		readWrapperThread = new Thread(readWrapper);
+		readWrapperThread.start();
+		
+		
 		log.debugTag("Initializing programmer");
+		
 
 		//try to get programmer version
 		String version = checkIfStarterKitPresent();
@@ -687,81 +697,24 @@ public class STK500v1 {
 	 */
 	private int read(long timeout) throws TimeoutException {
 		long now = System.currentTimeMillis();
-		InterrupterableRead reader = new InterrupterableRead();
-		reader.run();
+		boolean accepted = readWrapper.requestReadByte();
+		if (!accepted) {
+			logger.debugTag("Job not accepted by wrapper");
+			return -1;
+		}
 		//ask if reading is done
-		while (!reader.isDone()) {
+		while (!readWrapper.isDone()) {
 			if (System.currentTimeMillis() >= now + timeout) {
-				logger.debugTag("Timed out, attempting to stop thread...");
-				reader.stop = true;
-				reader.thread.destroy();
+				if (readWrapper.isFailed()) {
+					logger.debugTag("The wrapper failed, probably IOException.");
+					return -1;
+				}
+				logger.debugTag("Timed out, cancelling request...");
+				readWrapper.cancelRequest();
 				throw new TimeoutException("Reading timed out");
 			}
 		}
-		return reader.getResult();
+		return readWrapper.getResult();
 	}
 	
-	/**
-	 * Class wrapping input.read(). Set stop to true and interrupt the thread
-	 * to cancel the job.
-	 * Check isDone() before trying getResult().
-	 */
-	class InterrupterableRead implements Runnable {
-		public volatile boolean stop;
-		private volatile boolean done;
-		private int readByte;
-		private volatile Thread thread;
-		
-		/**
-		 * Get the result of the read operation. If called before the job is done,
-		 * an IllegalStateException will be thrown.
-		 * @return -1 if end of stream encountered, otherwise 0 to 255
-		 * @throws IllegalStateException
-		 */
-		public synchronized int getResult() throws IllegalStateException {
-			if (done) {
-				return readByte;
-			} else {
-				throw new IllegalStateException("Cannot return result; Job not done");
-			}
-		}
-		
-		/**
-		 * Check whether the job is done and the result can be retrieved.
-		 */
-		public boolean isDone() {
-			return done;
-		}
-
-		@Override
-		public void run() {
-			stop = false;
-			done = false;
-			readByte = -1;
-			thread = Thread.currentThread();
-			
-			while (!stop && !done) {
-				if (stop) logger.debugTag("Ask to stop");
-				if (!Thread.currentThread().isInterrupted()) {
-					try {
-						readByte = input.read();
-						done = true;
-						break;
-					} catch (IOException e) {
-						logger.debugTag("Communication problem reading");
-						break;
-					}
-				//stop if timed out
-				} else if (stop) {
-					logger.debugTag("Reading timed out");
-					break;
-				//continue if other reason
-				} else {
-					logger.debugTag("Error: Reading unexpectedly interrupted");
-					break;
-				}
-			}
-		}
-		
-	}
 }

@@ -189,6 +189,17 @@ public class ReadWrapper implements Runnable {
 	}
 	
 	/**
+	 * Get the result. This is either a read byte or the number of read bytes.
+	 * This depends on whether the singleRead of buffer methods are used.
+	 */
+	public synchronized int getResult() {
+		if (!(state == State.RESULT_READY)) {
+			throw new IllegalStateException("Can't get results until ready");
+		}
+		return (buffer == null) ? byteResult: bytesRead;
+	}
+	
+	/**
 	 * Used when a result is no longer needed or wanted. Typically used on timeouts.
 	 * Make sure to wake the thread if it's idle before running.
 	 **/
