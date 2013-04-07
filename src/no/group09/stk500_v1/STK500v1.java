@@ -705,7 +705,7 @@ public class STK500v1 {
 		//ask if reading is done
 		while (!readWrapper.isDone()) {
 			if (System.currentTimeMillis() >= now + timeout) {
-				if (readWrapper.isFailed()) {
+				if (readWrapper.checkIfFailed()) {
 					logger.debugTag("The wrapper failed, probably IOException.");
 					return -1;
 				}

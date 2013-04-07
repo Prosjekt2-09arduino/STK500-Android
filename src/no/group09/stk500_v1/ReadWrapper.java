@@ -72,6 +72,7 @@ public class ReadWrapper implements Runnable {
 	 * @param choice true to enable, false to disable
 	 */
 	public synchronized void setStrictPolicy(boolean choice) {
+		logger.debugTag("Set strict policy to " + choice);
 		strictPolicy = choice;
 	}
 	
@@ -84,11 +85,15 @@ public class ReadWrapper implements Runnable {
 	}
 	
 	/**
-	 * Check if the request failed
+	 * Check if the request failed. Returns to idle state afterwards.
 	 * @return true if fail
 	 */
-	public synchronized boolean isFailed() {
-		return (state == State.FAIL);
+	public synchronized boolean checkIfFailed() {
+		if (state == State.FAIL) {
+			state = State.WAITING;
+			return true;
+		}
+		return false;
 	}
 	
 	/**
@@ -218,6 +223,8 @@ public class ReadWrapper implements Runnable {
 	@Override
 	public void run() {
 		while (!terminate) {
+			// === begin switch statement ===
+			//See State enum or hover over states for explanations
 			switch (state) {
 			case WAITING : {
 				if (oldState != state) {
@@ -225,8 +232,15 @@ public class ReadWrapper implements Runnable {
 				}
 				break;
 			}
+			case READING_CONTINUED : {
+				if (oldState == State.REQUEST_CANCELLED) {
+					//no need to do anything, as the reader was already reading
+					logger.debugTag("Resumed reading from a cancelled request");
+				}
+				//no break, deliberately fall through into READING
+			}
 			case READING : {
-				if (oldState != state) {
+				if (oldState == State.WAITING) {
 					logger.debugTag("Wrapper starting read action");
 					//read to buffer or just a single byte
 					if (buffer == null) {
@@ -236,15 +250,18 @@ public class ReadWrapper implements Runnable {
 					}
 				}
 				
+				//code from here on also executed if in READING_CONTINUED state
+				//switch to next state if done reading
 				if (reader.isDone()) {
 					state = State.RESULT_READY;
 				}
 				
+				//probably an IOException, go to failure state
 				if (reader.operationFailed()) {
 					state = State.FAIL;
 				}
 				
-				//cancel the read
+				//cancel the read if requested by caller
 				if (cancelRequest) {
 					state = State.REQUEST_CANCELLED;
 					//no point to notify reader, as it can't be stopped
@@ -268,6 +285,12 @@ public class ReadWrapper implements Runnable {
 				if (state != oldState) {
 					logger.debugTag("Read request cancelled");
 				}
+				
+				if (reader.isDone()) {
+					//reader finished before new request arrived
+					state = State.REQUEST_CANCELLED_RESULT_READY;
+				}
+				
 				break;
 			}
 			case REQUEST_CANCELLED_RESULT_READY : {
@@ -282,29 +305,11 @@ public class ReadWrapper implements Runnable {
 				}
 				break;
 			}
-			case READING_CONTINUED : {
-				if (oldState == State.REQUEST_CANCELLED) {
-					logger.debugTag("Resumed reading from a cancelled request");
-				}
-				
-				if (reader.isDone()) {
-					state = State.RESULT_READY;
-				}
-				
-				if (reader.operationFailed()) {
-					state = State.FAIL;
-				}
-				
-				//cancel resumed read
-				if (cancelRequest) {
-					state = State.REQUEST_CANCELLED;
-					//no point to notify reader, as it can't be stopped
-				}
-				break;
-			}
 			case FAIL : {
 				if (oldState != state) {
 					logger.debugTag("Wrapper class failed to get a result from the reader");
+					//read type won't matter for future requests
+					buffer = null;
 				}
 				break;
 			}
@@ -312,10 +317,13 @@ public class ReadWrapper implements Runnable {
 				throw new IllegalArgumentException("Unhandled state:" + state);
 			}
 			}
-			//end switch
+			// === end switch statement ===
 			
+			//keep track of state transitions
 			oldState = state;
 		}
+		
+		//stopping wrapper class stops reader by extension
 		reader.fullStop = true;
 	}
 	
@@ -353,7 +361,7 @@ public class ReadWrapper implements Runnable {
 		 **/
 		READING_CONTINUED,
 		
-		/**If it failed completely**/
+		/**If it failed completely. Most likely caused by IOException.**/
 		FAIL
 	}
 
