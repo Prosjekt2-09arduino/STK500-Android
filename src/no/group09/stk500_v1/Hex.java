@@ -11,7 +11,7 @@ public class Hex {
 	
 	private int line = 0;
 	private boolean state = false;
-	private static final int ADDITION_TO_LENGTH_IN_CHECKSUM = 4;
+//	private static final int ADDITION_TO_LENGTH_IN_CHECKSUM = 4;
 	
 	public Hex(byte[] bin, Logger log) {
 		this.logger = log;
@@ -61,8 +61,6 @@ public class Hex {
 	 * @return true if the hex file is correct.
 	 */
 	private boolean splitHex(byte[] subHex) {
-//		byte[] tempHex = new byte[maxBytesOnLine-3]; // we do not need start byte, checksum and record
-		
 //		If no bytes left
 		if(subHex.length == 0) {
 //			logger.debugTag("ERROR: No bytes left!");
@@ -85,30 +83,20 @@ public class Hex {
 			//add new line to ArrayList
 			binList.add(new ArrayList<Byte>());
 			
-//			tempHex[0] = subHex[1];	// size
 			binList.get(line).add(subHex[1]); // size
-			
-//			tempHex[1] = subHex[2];	// start address
 			binList.get(line).add(subHex[2]); // start address
-			
-//			tempHex[2] = subHex[3];	// end address
 			binList.get(line).add(subHex[3]); // start address
-			
-//			tempHex[3] = subHex[4];	// record, only used to calculate checksum
 			binList.get(line).add(subHex[4]); // record
 			
 			//save length
-//			int dataLength = tempHex[0];
 			int dataLength = binList.get(line).get(0);
 
 			//save data
 			for (int i = 5; i < dataLength+5; i++) {
-//				tempHex[i] = subHex[i+2];
 				binList.get(line).add(subHex[i]);
 			}
 			
 			//save checksum
-//			tempHex[3+dataLength] = subHex[5+dataLength];
 			binList.get(line).add(subHex[5+dataLength]);
 			
 			//Check if the checksum is correct
@@ -131,18 +119,12 @@ public class Hex {
 	
 	
 	/**
-<<<<<<< HEAD
-	 * Format line in hex file,
-	 * @param l
-	 * @return one line from hex, including size, address (high + low) and data.
-=======
 	 * Format line in hex file into an array with:
 	 * 1 byte size
 	 * 2 byte address
 	 * n byte address
 	 * @param line number in hex file
 	 * @return byte array, empty if the line is out of bounds
->>>>>>> Change array to ArrayList #22
 	 */
 	private byte[] formatHexLine(int l)
 	{
@@ -177,52 +159,20 @@ public class Hex {
 		System.out.println("Verifying checksum of line: " + line);
 		
 		//length of data
-<<<<<<< HEAD
-		int length = binary[line][0] + ADDITION_TO_LENGTH_IN_CHECKSUM;
-=======
 		int length = binList.get(line).size();
->>>>>>> Change array to ArrayList #22
 		System.out.println("Number of bytes of data: " + length);
 		
 		int byteValue = 0;
 		
 		//Add the values of all the fields together
 		for(int i=0; i<length-1; i++) {
-<<<<<<< HEAD
-			byteValue += binary[line][i];
-=======
 			byteValue += binList.get(line).get(i);
->>>>>>> Change array to ArrayList #22
 		}
 		
 		int b = 0x100;
 		
 		byte check = (byte) (b-byteValue);
 		
-<<<<<<< HEAD
-		return (check&0xFF) == (binary[line][length-1]&0xFF);
-=======
 		return (check&0xFF) == (binList.get(line).get(length-1)&0xFF);
->>>>>>> Change array to ArrayList #22
-	}
-	
-	/**
-	 * Read two unsigned bytes into an integer
-	 * @param high Most significant byte
-	 * @param low  Least significant byte
-	 * @return
-	 */
-	private static int unPackTwoBytes(byte high, byte low) {
-		int out = (decodeByte(high) << 8) | (decodeByte(low));
-		return out;
-	}
-	
-	/**
-	 * Get the unsigned value of a byte
-	 * @param unsignedByte
-	 * @return
-	 */
-	private static int decodeByte(byte unsignedByte) {
-		return 0xFF & unsignedByte;
 	}
 }
