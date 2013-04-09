@@ -5,13 +5,11 @@ import java.util.ArrayList;
 public class Hex {
 	private Logger logger;
 	private final static int maxBytesOnLine = 24;
-//	private byte[][] binary = new byte[256][maxBytesOnLine];
 	
 	ArrayList<ArrayList<Byte>> binList = new ArrayList<ArrayList<Byte>>();
 	
 	private int line = 0;
 	private boolean state = false;
-//	private static final int ADDITION_TO_LENGTH_IN_CHECKSUM = 4;
 	
 	public Hex(byte[] bin, Logger log) {
 		this.logger = log;
@@ -50,8 +48,12 @@ public class Hex {
 	 */
 	public boolean getChecksumStatus(int l)
 	{
-//		return checkData(l);
-		return true;
+		if(l<line) {
+			return checkData(l);
+		}
+		else {
+			return false;
+		}
 	}	
 	
 	/**
@@ -61,23 +63,17 @@ public class Hex {
 	 * @return true if the hex file is correct.
 	 */
 	private boolean splitHex(byte[] subHex) {
-//		If no bytes left
+		//If no bytes left
 		if(subHex.length == 0) {
 //			logger.debugTag("ERROR: No bytes left!");
 			System.out.println("ERROR: No bytes left!");
 			return false;
 		}
-//		The line must start with ':'
+		//The line must start with ':'
 		else if(subHex[0] != 58) {
 //			logger.debugTag("ERROR: Line not starting with ':' !");
 			System.out.println("ERROR: Line not starting with ':' !");
 			return false;
-		}
-//		End of hex file
-		else if(subHex[1] == 0 && subHex[2] == 0) {
-//			logger.debugTag("End of hex file!");
-			System.out.println("End of hex file!");
-			return true;
 		}
 		else {
 			//add new line to ArrayList
@@ -90,6 +86,13 @@ public class Hex {
 			
 			//save length
 			int dataLength = binList.get(line).get(0);
+			
+			//TODO: Check if record and data length is correct 
+//			//If record type are 0x01 (file end) and...........
+//			if(dataLength>0 && subHex[4]==-1) {
+//				System.out.println("ERROR: Contains several lines, but are told to stop!");
+//				return false;
+//			}
 
 			//save data
 			for (int i = 5; i < dataLength+5; i++) {
@@ -107,8 +110,16 @@ public class Hex {
 					returnHex[i-dataLength-6] = subHex[i];
 				}
 				
-				line++;
-				return splitHex(returnHex);
+				//End of hex file
+				if(subHex[1] == 0) {
+//					logger.debugTag("End of hex file!");
+					System.out.println("End of hex file!\nFile OK!");
+					return true;
+				}
+				else {
+					line++;
+					return splitHex(returnHex);
+				}
 			}
 			else {
 				System.out.println("Error: Checksum failed!");
@@ -131,7 +142,7 @@ public class Hex {
 		byte tempBinary[] = new byte[maxBytesOnLine-3];
 		
 		//Check if the line is out of bounds
-		if(l < line) {
+		if(l <= line) {
 			int length = binList.get(l).size();
 			
 			//Add elements into an array
@@ -155,7 +166,6 @@ public class Hex {
 	 * @return true if checksum is correct, false if not.
 	 */
 	private boolean checkData (int line) {
-		
 		System.out.println("Verifying checksum of line: " + line);
 		
 		//length of data
