@@ -24,11 +24,17 @@ public class STK500v1 {
 		readWrapper = new ReadWrapper(input, log);
 		readWrapperThread = new Thread(readWrapper);
 		readWrapperThread.start();
-		
-		
-		log.debugTag("Initializing programmer");
+		while (!readWrapper.checkIfStarted()) {
+			try {
+				Thread.sleep(100);
+			} catch (InterruptedException e) {
+				//nothing needs doing
+			}
+		}
+		logger.debugTag("ReadWrapper should be started now");
 		
 
+		log.debugTag("Initializing programmer");
 		//try to get programmer version
 		String version = checkIfStarterKitPresent();
 		if (!version.equals("Arduino")) return;
@@ -697,11 +703,16 @@ public class STK500v1 {
 	 */
 	private int read(long timeout) throws TimeoutException {
 		long now = System.currentTimeMillis();
+		if (!readWrapper.canAcceptWork()) {
+			logger.debugTag("Readwrapper wasn't ready to accept work");
+			return -1;
+		}
 		boolean accepted = readWrapper.requestReadByte();
 		if (!accepted) {
 			logger.debugTag("Job not accepted by wrapper");
 			return -1;
 		}
+		logger.debugTag("Job accepted by wrapper");
 		//ask if reading is done
 		while (!readWrapper.isDone()) {
 			if (System.currentTimeMillis() >= now + timeout) {
@@ -714,6 +725,7 @@ public class STK500v1 {
 				throw new TimeoutException("Reading timed out");
 			}
 		}
+		logger.debugTag("Wrapper reported job as complete");
 		return readWrapper.getResult();
 	}
 	
