@@ -8,6 +8,7 @@ public class Hex {
 	private byte[][] binary = new byte[256][maxBytesOnLine];
 	private int line = 0;
 	private boolean state = false;
+	private static final int ADDITION_TO_LENGTH_IN_CHECKSUM = 4;
 	
 	public Hex(byte[] bin, Logger log) {
 		this.logger = log;
@@ -109,7 +110,7 @@ public class Hex {
 	
 	/**
 	 * Format line in hex file,
-	 * @param line
+	 * @param l
 	 * @return one line from hex, including size, address (high + low) and data.
 	 */
 	private byte[] formatHexLine(int l)
@@ -133,33 +134,36 @@ public class Hex {
 		return tempBinary;
 	}
 	
-//	/**
-//	 * Check if the checksum is correct.
-//	 * @param line
-//	 * @return true if checksum is correct
-//	 */
-//	private boolean checkData(int line) {
-//		int checksum = 0;
-//		
-//		System.out.println("\nChecksum on line " + line);
-//		
-//		//length of data
-//		int length = binary[line][0];
-//		System.out.println("Length:     " + length);
-//		
-//		//data
-//		for(int i=0; i<length; i++) {
-//			checksum += binary[line][i];
-//		}
-//		
-//		System.out.println("Last byte:  " + binary[line][length+2]);
-//		System.out.println("Sum:        " + checksum);
-//		
-//		System.out.println("Checksum done.\n");
-//		
-//		return true;
-//	}
-//	
+	/**
+	 * Calculate and check the checksum of the given line in the binary array.
+	 * 
+	 * @param line integer telling which line in the binary array that is to be
+	 * checksummed.
+	 * 
+	 * @return true if checksum is correct, false if not.
+	 */
+	private boolean checkData (int line) {
+		
+		System.out.println("Verifying checksum of line: " + line);
+		
+		//length of data
+		int length = binary[line][0] + ADDITION_TO_LENGTH_IN_CHECKSUM;
+		System.out.println("Number of bytes of data: " + length);
+		
+		int byteValue = 0;
+		
+		//Add the values of all the fields together
+		for(int i=0; i<length-1; i++) {
+			byteValue += binary[line][i];
+		}
+		
+		int b = 0x100;
+		
+		byte check = (byte) (b-byteValue);
+		
+		return (check&0xFF) == (binary[line][length-1]&0xFF);
+	}
+	
 	/**
 	 * Read two unsigned bytes into an integer
 	 * @param high Most significant byte
