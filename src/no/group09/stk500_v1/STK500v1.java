@@ -37,7 +37,10 @@ public class STK500v1 {
 		log.debugTag("Initializing programmer");
 		//try to get programmer version
 		String version = checkIfStarterKitPresent();
-		if (!version.equals("Arduino")) return;
+		if (!version.equals("Arduino")) {
+			readWrapper.terminate();
+			return;
+		};
 		
 		for (int i = 0; i < 10; i++) {
 			logger.debugTag("Number of tries: " + i);
@@ -55,6 +58,9 @@ public class STK500v1 {
 		
 		log.debugTag(version);
 		log.printToConsole(version);
+		
+		//shut down readWrapper
+		readWrapper.terminate();
 	}
 
 	/**
@@ -86,7 +92,7 @@ public class STK500v1 {
 			int readResult = 0;
 			byte readByte;
 			while (readResult >= 0) {
-				readResult = read(2500);
+				readResult = read(10000);
 				if (readResult == -1) {
 					//TODO: Discover when/if this happens
 					logger.debugTag("End of stream encountered in checkIfStarterKitPresent()");
