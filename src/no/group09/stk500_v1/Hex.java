@@ -4,11 +4,9 @@ import java.util.ArrayList;
 
 public class Hex {
 	private Logger logger;
-	private final static int maxBytesOnLine = 24;
-	
 	ArrayList<ArrayList<Byte>> binList = new ArrayList<ArrayList<Byte>>();
 	
-	private int line = 0;
+	private int line = -1;
 	private boolean state = false;
 	
 	public Hex(byte[] bin, Logger log) {
@@ -17,7 +15,7 @@ public class Hex {
 		// count lines and create an array
 		state = splitHex(bin);
 		
-//		logger.debugTag("State: " + state);
+		logger.debugTag("Hex file status: " + state);
 	}
 	
 	/**
@@ -36,24 +34,16 @@ public class Hex {
 	 */
 	public int getLines()
 	{
-		System.out.println(line);
-		System.out.println(binList.size());
 		return line;
 	}
 	
 	/**
-	 * Return state of hex file.
-	 * @param l Line of hex
-	 * @return true if the hex file is correct.
+	 * Return state of hex file
+	 * @return true if the hex file is correct
 	 */
-	public boolean getChecksumStatus(int l)
+	public boolean getChecksumStatus()
 	{
-		if(l<line) {
-			return checkData(l);
-		}
-		else {
-			return false;
-		}
+		return state;
 	}	
 	
 	/**
@@ -63,36 +53,49 @@ public class Hex {
 	 * @return true if the hex file is correct.
 	 */
 	private boolean splitHex(byte[] subHex) {
-		//If no bytes left
-		if(subHex.length == 0) {
-//			logger.debugTag("ERROR: No bytes left!");
-			System.out.println("ERROR: No bytes left!");
+		int dataLength = 0;
+		
+		//The minimum length of a line is 6, including the start byte ':'
+		if(subHex.length<6) {
+			logger.debugTag("ERROR: The minimum size of a line is 6, this line was " + subHex.length);
 			return false;
 		}
+		//If no bytes left
+		else if(subHex.length == 0) {
+			logger.debugTag("ERROR: No bytes left!");
+			return false;
+		}
+		else {
+			//save length
+			dataLength = subHex[1];
+		}
+		
 		//The line must start with ':'
-		else if(subHex[0] != 58) {
-//			logger.debugTag("ERROR: Line not starting with ':' !");
-			System.out.println("ERROR: Line not starting with ':' !");
+		if(subHex[0] != 58) {
+			logger.debugTag("ERROR: Line not starting with ':' !");
+			return false;
+		}
+		//If record type is 0x01 (file end) and data size > 0, return false
+		else if(subHex[4]==1 && dataLength>0) {
+			logger.debugTag("ERROR: Contains data, but are told to stop!");
+			return false;
+		}
+		//If record type is 0x00 (data record) and data size equals 0, return false
+		else if(subHex[4]==0 && subHex[1]==0) {
+			logger.debugTag("ERROR: Told to send data, but contains no data!");
 			return false;
 		}
 		else {
 			//add new line to ArrayList
+			line++;
+			
 			binList.add(new ArrayList<Byte>());
 			
+			//Save data size
 			binList.get(line).add(subHex[1]); // size
 			binList.get(line).add(subHex[2]); // start address
 			binList.get(line).add(subHex[3]); // start address
 			binList.get(line).add(subHex[4]); // record
-			
-			//save length
-			int dataLength = binList.get(line).get(0);
-			
-			//TODO: Check if record and data length is correct 
-//			//If record type are 0x01 (file end) and...........
-//			if(dataLength>0 && subHex[4]==-1) {
-//				System.out.println("ERROR: Contains several lines, but are told to stop!");
-//				return false;
-//			}
 
 			//save data
 			for (int i = 5; i < dataLength+5; i++) {
@@ -112,17 +115,19 @@ public class Hex {
 				
 				//End of hex file
 				if(subHex[1] == 0) {
-//					logger.debugTag("End of hex file!");
-					System.out.println("End of hex file!\nFile OK!");
+					//Print to log if hex file contains more lines, but are told to stop
+					if(returnHex.length >0) {
+						logger.debugTag("ERROR: Told to stop, but contains more data!");
+//						return false;
+					}
+					logger.debugTag("End of hex file!");
 					return true;
 				}
 				else {
-					line++;
 					return splitHex(returnHex);
 				}
 			}
 			else {
-				System.out.println("Error: Checksum failed!");
 				return false;
 			}
 		}
@@ -137,24 +142,29 @@ public class Hex {
 	 * @param line number in hex file
 	 * @return byte array, empty if the line is out of bounds
 	 */
-	private byte[] formatHexLine(int l)
-	{
-		byte tempBinary[] = new byte[maxBytesOnLine-3];
+	private byte[] formatHexLine(int line)
+	{		
+		byte tempBinary[] = null;
 		
 		//Check if the line is out of bounds
-		if(l <= line) {
-			int length = binList.get(l).size();
-			
+		try {
+			//Create a new temporary array
+			tempBinary = new byte[binList.get(line).size()];
+						
 			//Add elements into an array
-			for(int i=0; i<length; i++) {
+			for(int i=0; i<binList.get(line).size(); i++) {
 				//Ignore the record element
 				if(i!=3) {
-					tempBinary[i] = binList.get(l).get(i);
+					tempBinary[i] = binList.get(line).get(i);
 				}
 			}
+			return tempBinary;
+			
+		} catch (Exception e) {
+			logger.debugTag("ERROR: Out of bounds!");
+			tempBinary = new byte[0];
+			return tempBinary;
 		}
-		
-		return tempBinary;
 	}
 	
 	/**
@@ -166,11 +176,8 @@ public class Hex {
 	 * @return true if checksum is correct, false if not.
 	 */
 	private boolean checkData (int line) {
-		System.out.println("Verifying checksum of line: " + line);
-		
 		//length of data
 		int length = binList.get(line).size();
-		System.out.println("Number of bytes of data: " + length);
 		
 		int byteValue = 0;
 		
@@ -182,7 +189,7 @@ public class Hex {
 		int b = 0x100;
 		
 		byte check = (byte) (b-byteValue);
-		
+				
 		return (check&0xFF) == (binList.get(line).get(length-1)&0xFF);
 	}
 }
