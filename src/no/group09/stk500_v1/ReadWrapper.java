@@ -213,6 +213,7 @@ public class ReadWrapper implements Runnable {
 		if (!(state == State.RESULT_READY)) {
 			throw new IllegalStateException("Can't get results until ready");
 		}
+		state = State.WAITING;
 		notifyAll();
 		return (buffer == null) ? byteResult: bytesRead;
 	}
@@ -270,6 +271,7 @@ public class ReadWrapper implements Runnable {
 			case WAITING : {
 				if (oldState != state) {
 					logger.debugTag("Wrapper idling...");
+					oldState = state;
 				}
 				
 				//nothing to do for now, pause execution
@@ -302,6 +304,7 @@ public class ReadWrapper implements Runnable {
 						reader.requestRead(buffer, 0, buffer.length);
 					}
 				}
+				oldState = state;
 
 				//nothing to do for now, pause execution
 				synchronized(this) {
@@ -342,6 +345,7 @@ public class ReadWrapper implements Runnable {
 					}
 					logger.debugTag("Result ready: " + byteResult);
 					resultsSet = true;
+					oldState = state;
 				}
 
 				//nothing to do for now, pause execution
@@ -398,9 +402,15 @@ public class ReadWrapper implements Runnable {
 			}
 			case FAIL : {
 				if (oldState != state) {
+					synchronized(reader){
+						reader.ready = true;
+						reader.notifyAll();
+					}
+					
 					logger.debugTag("Wrapper class failed to get a result from the reader");
 					//read type won't matter for future requests
 					buffer = null;
+					oldState = state;
 				}
 
 				//nothing to do for now, pause execution
@@ -420,7 +430,7 @@ public class ReadWrapper implements Runnable {
 			// === end switch statement ===
 			
 			//keep track of state transitions
-			oldState = state;
+//			oldState = state;
 		}
 		
 		//stopping wrapper class stops reader by extension
@@ -550,7 +560,7 @@ public class ReadWrapper implements Runnable {
 		/**Read several bytes**/
 		private void readToBuffer() {
 			try {
-				startWork = false;
+//				startWork = false;
 				logger.debugTag("Read to buffer in progress");
 				bytesRead = input.read(buffer, readOffset, maxReadLength);
 				resultReady = true;
@@ -565,7 +575,7 @@ public class ReadWrapper implements Runnable {
 		/**Read a single byte**/
 		private void read() {
 			try {
-				startWork = false;
+//				startWork = false;
 				logger.debugTag("Single read in progress");
 				singleResult = input.read();
 				
@@ -583,7 +593,7 @@ public class ReadWrapper implements Runnable {
 		
 		private void setFailureFlags() {
 			resultReady = false;
-			startWork = false;
+//			startWork = false;
 			ready = false;
 			reading = false;
 			//tell wrapper something happened
@@ -638,22 +648,35 @@ public class ReadWrapper implements Runnable {
 					//this should never occur
 					throw new IllegalStateException("Threading issue? Reading true in run");
 				} else if (startWork) {
+					startWork = false;
 					//check if buffered or single reading should be used
+					reading = true;
 					if (buffer == null) {
-						reading = true;
 						read();
-						reading = false;
 					} else {
-						reading = true;
 						readToBuffer();
-						reading = false;
 					}
+					reading = false;
 					//tell wrapper to wake up
 					synchronized(wrapper) {
 						wrapper.notifyAll();
 					}
 				} else {
 					//!startWork, !reading, !ready, !resultReady
+					
+					//own monitor before waiting:
+					synchronized(this) {
+						try {
+							wait();
+						} catch (InterruptedException e) {
+							//only log message if reader is supposed to read
+							if (ready && !resultReady) {
+								logger.debugTag("Reader woken up after failure." + 
+										" Message: " +e.getMessage());
+							}
+						}
+
+					}
 				}
 			}
 		}
