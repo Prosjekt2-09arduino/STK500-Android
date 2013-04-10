@@ -199,19 +199,23 @@ public class STK500v1 {
         return ok;
     }
 
-    private void chipErase() {
-        //commands
-        ConstantsStk500v1.STK_CHIP_ERASE;
-        ConstantsStk500v1.CRC_EOP;
+    /**
+     * @return true if CRC_EOP was recieved.
+     */
+    private boolean chipErase() {
+        byte[] command = new byte[]{ConstantsStk500v1.STK_CHIP_ERASE, ConstantsStk500v1.CRC_EOP};
 
-        //command value 0x52
+        try {
+            output.write(command);
+        } catch (IOException e) {
+            logger.debugTag("Communication problem on chip erase.");
+        }
 
-        //responses
-        ConstantsStk500v1.STK_INSYNC;
-        ConstantsStk500v1.STK_OK;
-        //OR
-        if (getWhatever = ConstantsStk500v1.STK_NOSYNC)
-            ConstantsStk500v1.CRC_EOP;
+        boolean ok = checkInput(true, ConstantsStk500v1.CRC_EOP);
+        if (!ok) {
+            logger.debugTag("No sync. EOP not recieved for chip erase.");
+        }
+        return ok;
 
     }
 
