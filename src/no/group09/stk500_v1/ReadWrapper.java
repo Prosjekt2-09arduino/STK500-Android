@@ -111,8 +111,13 @@ public class ReadWrapper implements Runnable {
 	 * @return true if ready
 	 */
 	public synchronized boolean canAcceptWork() {
-		return (state == State.WAITING || state == State.REQUEST_CANCELLED_RESULT_READY ||
+		boolean check = (state == State.WAITING || state == State.REQUEST_CANCELLED_RESULT_READY ||
 				(state == State.REQUEST_CANCELLED && !strictPolicy));
+		
+		if(!check) {
+			logger.debugTag("Work not accepted, state: " + state.toString());
+		}
+		return check;
 	}
 	
 	/**
@@ -194,6 +199,14 @@ public class ReadWrapper implements Runnable {
 				} else {
 					return false;
 				}
+			}
+			else if (state == State.WAITING){
+				state = State.READING;
+				this.buffer = buffer;
+			}
+			else {
+				logger.debugTag("Wierd case, unforseen state in request to read into buffer");
+				return false;
 			}
 		} else {
 			//can't accept work
@@ -305,7 +318,7 @@ public class ReadWrapper implements Runnable {
 					}
 				}
 				oldState = state;
-
+				
 				//nothing to do for now, pause execution
 				synchronized(this) {
 					try {
@@ -339,11 +352,13 @@ public class ReadWrapper implements Runnable {
 					if (buffer == null) {
 						//get single byte
 						byteResult = reader.getSingleByteResult();
+						logger.debugTag("Result ready, read byte: " + byteResult);
 					} else {
 						//get number of read bytes. actual bytes stored in buffer
 						bytesRead = reader.getReadBytesFromResult();
+						logger.debugTag("Result ready, read " + byteResult + " bytes");
 					}
-					logger.debugTag("Result ready: " + byteResult);
+					
 					resultsSet = true;
 					oldState = state;
 				}
@@ -435,6 +450,15 @@ public class ReadWrapper implements Runnable {
 		
 		//stopping wrapper class stops reader by extension
 		reader.fullStop = true;
+		
+		long now = System.currentTimeMillis();
+		while(readerThread.isAlive() && System.currentTimeMillis()-now > 10000) {
+			logger.debugTag("readerThread is alive");
+			try {
+				Thread.sleep(500);
+			} catch (InterruptedException e) {
+			}
+		}
 	}
 	
 	/**

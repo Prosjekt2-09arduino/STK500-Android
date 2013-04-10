@@ -13,6 +13,7 @@ public class STK500v1 {
 	private byte[] binary;
 	private ReadWrapper readWrapper;
 	private Thread readWrapperThread;
+	private int syncStack = 0;
 
 	public STK500v1 (OutputStream output, InputStream input, Logger log, byte[] binary) {
 		this.output = output;
@@ -20,6 +21,9 @@ public class STK500v1 {
 		this.logger = log;
 		this.binary = binary;
 		logger.debugTag("Initializing protocol code");
+		
+		long startTime;
+		long endTime;
 		
 		readWrapper = new ReadWrapper(input, log);
 		readWrapperThread = new Thread(readWrapper);
@@ -36,23 +40,44 @@ public class STK500v1 {
 
 		log.debugTag("Initializing programmer");
 		//try to get programmer version
+		
+		startTime = System.currentTimeMillis();
 		String version = checkIfStarterKitPresent();
+		endTime = System.currentTimeMillis();
+		
+		logger.debugTag("checkIfStarterKitPresent took: " + (endTime-startTime) + " ms");
+		
 		log.debugTag(version);
 		log.printToConsole(version);
 		if (!version.equals("Arduino")) {
 			readWrapper.terminate();
+			while(readWrapperThread.isAlive()) {
+				try {
+					logger.debugTag("readWrapperThread is alive");
+					Thread.sleep(100);
+				} catch (InterruptedException e) {
+				}
+			}
 			return;
 		};
 		
+		boolean entered;
+		startTime = System.currentTimeMillis();
 		for (int i = 0; i < 10; i++) {
 			logger.debugTag("Number of tries: " + i);
-			if (enterProgramMode()) {
+			
+			entered = enterProgramMode();
+			endTime = System.currentTimeMillis();
+			
+			logger.debugTag("enterProgramMode took: " + (endTime-startTime) + " ms");
+			
+			if (entered) {
 				long now = System.currentTimeMillis();
 				
 				int syncFails = 0;
 				int syncOk = 0;
 				logger.debugTag("Spam sync to stay in programming mode.");
-				while(System.currentTimeMillis() - now < 10000) {
+				while(System.currentTimeMillis() - now < 500) {
 					if(!getSynchronization()) {
 						logger.debugTag("Sync gave up...");
 						syncFails++;
@@ -64,10 +89,37 @@ public class STK500v1 {
 				
 				logger.debugTag("OK: " + syncOk + ", fails: " + syncFails);
 				
+				boolean loadOk = false;
+				boolean readOk = false;
+				byte[] readPage = null;
+				
+				for (int j = 0; j < 10; j++) {
+					if(loadAddress(0)) {
+						loadOk = true;
+						
+						readPage = readPage((byte)0,(byte)0,true);
+						if(readPage!=null) {
+							readOk = true;
+							logger.debugTag("readPage not null: " + Arrays.toString(readPage));
+							break;
+						}
+					}
+				}
+				
+				logger.debugTag("Loading: " + loadOk + ", Reading: " + readOk);
+				
+				if(readOk) {
+					logger.debugTag("Read page result: " + Arrays.toString(readPage));
+				}
+				
 				logger.debugTag("The ardunino has entered programming mode. Trying to leave...");
 				for (int j = 0; j < 10; j++) {
 					if(leaveProgramMode()) {
 						logger.debugTag("The arduino has now left programming mode.");
+						break;
+					}
+					if(j>2) {
+						logger.debugTag("Giving up on leaving programming mode.");
 						break;
 					}
 				}
@@ -95,7 +147,7 @@ public class STK500v1 {
 					ConstantsStk500v1.STK_GET_SIGN_ON, ConstantsStk500v1.CRC_EOP
 			};
 			output.write(out);
-			logger.debugTag("Sending bytes: " + Arrays.toString(out));
+			logger.debugTag("Sending bytes to get starter kit: " + Arrays.toString(out));
 		} catch (IOException e) {
 			logger.debugTag("Communication problem: Can't send request for programmer version");
 			return "-1";
@@ -108,7 +160,7 @@ public class STK500v1 {
 			int readResult = 0;
 			byte readByte;
 			while (readResult >= 0) {
-				readResult = read(10000);
+				readResult = read(TimeoutValues.CONNECT);
 				if (readResult == -1) {
 					//TODO: Discover when/if this happens
 					logger.debugTag("End of stream encountered in checkIfStarterKitPresent()");
@@ -157,7 +209,7 @@ public class STK500v1 {
 		byte[] getSyncCommand = {ConstantsStk500v1.STK_GET_SYNC, ConstantsStk500v1.CRC_EOP};
 		int tries = 0;
 
-		while (tries < 100) {
+		while (tries < 10) {
 			tries++;
 
 			try {
@@ -170,6 +222,7 @@ public class STK500v1 {
 			//If the response is valid, return. If not, continue
 			if (checkInput()) {
 				logger.debugTag("Sync achieved after " + (tries+1) + " tries.");
+				syncStack = 0;
 				return true;
 			}
 		}
@@ -197,7 +250,7 @@ public class STK500v1 {
 		byte[] command = new byte[] {
 				ConstantsStk500v1.STK_ENTER_PROGMODE, ConstantsStk500v1.CRC_EOP 	
 		};
-		logger.debugTag("Sending bytes: " + Arrays.toString(command));
+		logger.debugTag("Sending bytes to enter programming mode: " + Arrays.toString(command));
 		try {
 			output.write(command);
 		} catch (IOException e) {
@@ -206,7 +259,7 @@ public class STK500v1 {
 		}
 
 		//check response
-		boolean ok = checkInput(true, ConstantsStk500v1.STK_ENTER_PROGMODE);
+		boolean ok = checkInput(true, ConstantsStk500v1.STK_ENTER_PROGMODE, TimeoutValues.CONNECT);
 		if (!ok) {
 			logger.debugTag("Unable to enter programming mode");
 		}
@@ -286,6 +339,7 @@ public class STK500v1 {
 		loadAddr[2] = addr[0];
 		loadAddr[3] = ConstantsStk500v1.CRC_EOP;
 
+		logger.debugTag("Sending bytes to load address: " + Arrays.toString(loadAddr));
 		try {
 			output.write(loadAddr);
 		} catch (IOException e) {
@@ -390,8 +444,8 @@ public class STK500v1 {
 	 * block size should not be larger than 256 bytes. bytes_high and bytes_low
 	 * are part of an integer that describes the address to be written/read
 	 * 
-	 * @param bytes_high most significant byte of the address
-	 * @param bytes_low least significant byte of the address
+	 * @param bytes_high most significant byte of block size
+	 * @param bytes_low least significant byte of block size
 	 * @param writeFlash boolean indicating if it should be written to flash memory
 	 * or EEPROM. True = flash. False = EEPROM 
 	 * 
@@ -404,7 +458,7 @@ public class STK500v1 {
 	private byte[] readPage(byte bytes_high, byte bytes_low, boolean writeFlash) {
 		
 		byte[] readCommand = new byte[5];
-		byte[] in = new byte[3];
+		byte[] buffer = new byte[18];
 		byte memtype;
 		
 		if (writeFlash) memtype = (byte)'F';
@@ -416,6 +470,8 @@ public class STK500v1 {
 		readCommand[3] = memtype;
 		readCommand[4] = ConstantsStk500v1.CRC_EOP;
 		
+		logger.debugTag("Sending bytes to readPage: " + Arrays.toString(readCommand));
+		
 		try {
 			output.write(readCommand);
 		} catch (IOException e) {
@@ -426,17 +482,23 @@ public class STK500v1 {
 		int numberOfBytes = 0;
 		
 		try {
-			input.read(in);
-		} catch (IOException e) {
-			logger.debugTag("Could not read input in readPage");
-			e.printStackTrace();
+			numberOfBytes = read(buffer, TimeoutValues.READ);
+		} catch (TimeoutException e) {
+			logger.debugTag("Timed out when reading page");
 		}
 		
-		if (numberOfBytes == 3 && in[0] == ConstantsStk500v1.STK_INSYNC &&
-				in[2] == ConstantsStk500v1.STK_OK) return in;
+		logger.debugTag("readPage buffer: " + Arrays.toString(buffer));
 		
-		else if (numberOfBytes == 1 && in[0] == ConstantsStk500v1.STK_NOSYNC) return in;
+		if (numberOfBytes > 2 && buffer[0] == ConstantsStk500v1.STK_INSYNC &&
+				buffer[numberOfBytes-1] == ConstantsStk500v1.STK_OK) {
+			return buffer;
+		}
 		
+		else if (numberOfBytes == 1 && buffer[0] == ConstantsStk500v1.STK_NOSYNC) {
+			return null;
+		}
+		
+		logger.debugTag("readPage didn't receive anything!");
 		//If the method does not return in one of the above, something went wrong
 		return null;
 	}
@@ -530,7 +592,7 @@ public class STK500v1 {
 	 * @return true if response is STK_INSYNC and STK_OK, false if not
 	 */
 	private boolean checkInput() {
-		return checkInput(false, (byte) 0);
+		return checkInput(false, (byte) 0, TimeoutValues.DEFAULT);
 
 	}
 
@@ -548,15 +610,16 @@ public class STK500v1 {
 	 * set checkCommand to true.
 	 * @param command byte used to identify what command is sent to the connected
 	 * device. Only used if checkCommand is true.
+	 * @param timeout 
 	 * 
 	 * @return true if response is STK_INSYNC and STK_OK, false if not.
 	 */
-	private boolean checkInput(boolean checkCommand, byte command) {
-
+	private boolean checkInput(boolean checkCommand, byte command, TimeoutValues timeout) {
+		
 		int intInput = -1;
 		
 		try {
-			intInput = read(10000);
+			intInput = read(timeout);
 //			intInput = input.read();
 		} catch (TimeoutException e) {
 			logger.debugTag("Timeout in checkInput!");
@@ -571,7 +634,7 @@ public class STK500v1 {
 
 		if (intInput == ConstantsStk500v1.STK_INSYNC){
 			try {
-				intInput = read(10000);
+				intInput = read(timeout);
 //				intInput = input.read();
 			} catch (TimeoutException e) {
 				logger.debugTag("Timeout in checkInput!");
@@ -615,7 +678,12 @@ public class STK500v1 {
 			}
 		}
 		else {
-			logger.debugTag("Response was not STK_INSYNC in checkInput");
+			if(syncStack>2) {
+				logger.debugTag("Avoid stack overflow, not in sync!");
+				return false;
+			}
+			logger.debugTag("Response was not STK_INSYNC in checkInput, attempting synchronization.");
+			syncStack++;
 			getSynchronization();
 			//Synchronization is in place, but the operation was not successful. Try again.
 			return false;
@@ -722,17 +790,41 @@ public class STK500v1 {
 	
 	/**
 	 * Reads a single byte, will be interrupted after a while
-	 * @param timeout Milliseconds to wait before timeout
+	 * @param timeout The selected timeout enumeration chosen. Used to determine
+	 * timeout length.
 	 * @return -1 if end of stream encountered, otherwise 0-255
 	 * @throws TimeoutException 
 	 */
-	private int read(long timeout) throws TimeoutException {
+	private int read(TimeoutValues timeout) throws TimeoutException {
+		return read(null, timeout);
+	}
+	
+	/**
+	 * Will attempt to fill the entire buffer, if unable to fill it the number of read
+	 * bytes will be returned.
+	 * @param buffer Array of bytes to store the read bytes
+	 * @param timeout The selected timeout enumeration chosen. Used to determine
+	 * timeout length.
+	 * @return -1 if end of stream encountered, otherwise the number of bytes read
+	 * @throws TimeoutException 
+	 */
+	private int read(byte[] buffer, TimeoutValues timeout) throws TimeoutException {
 		long now = System.currentTimeMillis();
 		if (!readWrapper.canAcceptWork()) {
 			logger.debugTag("Readwrapper wasn't ready to accept work");
 			return -1;
 		}
-		boolean accepted = readWrapper.requestReadByte();
+		boolean accepted;
+		
+		//Check if single or buffered reading should be used
+		if(buffer!=null) {
+			logger.debugTag("Buffer not null");
+			accepted = readWrapper.requestReadIntoBuffer(buffer);
+		}
+		else {
+			accepted = readWrapper.requestReadByte();
+		}
+		
 		if (!accepted) {
 			logger.debugTag("Job not accepted by wrapper");
 			return -1;
@@ -740,7 +832,7 @@ public class STK500v1 {
 		logger.debugTag("Job accepted by wrapper");
 		//ask if reading is done
 		while (!readWrapper.isDone()) {
-			if (System.currentTimeMillis() >= now + timeout) {
+			if (System.currentTimeMillis() >= now + timeout.getTimeout()) {
 				if (readWrapper.checkIfFailed()) {
 					logger.debugTag("The wrapper failed, probably IOException.");
 					return -1;
@@ -752,6 +844,31 @@ public class STK500v1 {
 		}
 		logger.debugTag("Wrapper reported job as complete");
 		return readWrapper.getResult();
+	}
+	
+	/**
+	 * Standard timeout values for how long to wait for reading results.
+	 */
+	private enum TimeoutValues{
+		DEFAULT(1000),
+		CONNECT(3000),
+		READ(5000),
+		WRITE(1000);
+		
+	    private final long timeout;
+
+	    private TimeoutValues(long t)
+	    {
+	        timeout = t;
+	    }
+
+	    /**
+	     * Get the milliseconds assigned to the timeout
+	     * @return timeout as a long in milliseconds
+	     */
+	    public long getTimeout() {
+	    	return timeout;
+	    }
 	}
 	
 }
