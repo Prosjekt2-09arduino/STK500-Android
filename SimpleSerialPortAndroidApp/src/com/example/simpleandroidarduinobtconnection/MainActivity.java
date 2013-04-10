@@ -125,10 +125,11 @@ public class MainActivity extends Activity {
 				btAdapter.cancelDiscovery();
 
 				log.printToConsole("\n...Connecting...");
+				log.debugTag("Connecting...");
 
 				try {
 					btSocket.connect();
-					log.printToConsole("\n... Connection OK...");
+					log.debugTag("Connection OK...");
 				} catch (IOException e) {
 					try {
 						btSocket.close();
@@ -148,6 +149,7 @@ public class MainActivity extends Activity {
 					log.printToConsole("\n...Input stream creation failed...");
 				}
 				log.printToConsole("\n...Sockets created...");
+				log.debugTag("Sockets created");
 			}
 		});
 	}

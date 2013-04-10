@@ -24,31 +24,59 @@ public class STK500v1 {
 		readWrapper = new ReadWrapper(input, log);
 		readWrapperThread = new Thread(readWrapper);
 		readWrapperThread.start();
-		
-		
-		log.debugTag("Initializing programmer");
+		while (!readWrapper.checkIfStarted()) {
+			try {
+				Thread.sleep(100);
+			} catch (InterruptedException e) {
+				//nothing needs doing
+			}
+		}
+		logger.debugTag("ReadWrapper should be started now");
 		
 
+		log.debugTag("Initializing programmer");
 		//try to get programmer version
 		String version = checkIfStarterKitPresent();
-		if (!version.equals("Arduino")) return;
+		log.debugTag(version);
+		log.printToConsole(version);
+		if (!version.equals("Arduino")) {
+			readWrapper.terminate();
+			return;
+		};
 		
 		for (int i = 0; i < 10; i++) {
 			logger.debugTag("Number of tries: " + i);
 			if (enterProgramMode()) {
+				long now = System.currentTimeMillis();
+				
+				int syncFails = 0;
+				int syncOk = 0;
+				logger.debugTag("Spam sync to stay in programming mode.");
+				while(System.currentTimeMillis() - now < 10000) {
+					if(!getSynchronization()) {
+						logger.debugTag("Sync gave up...");
+						syncFails++;
+					}
+					else {
+						syncOk++;
+					}
+				}
+				
+				logger.debugTag("OK: " + syncOk + ", fails: " + syncFails);
+				
 				logger.debugTag("The ardunino has entered programming mode. Trying to leave...");
-//				for (int j = 0; j < 10; j++) {
-//					if(leaveProgramMode()) {
-//						logger.debugTag("The arduino has now left programming mode.");
-//						break;
-//					}
-//				}
+				for (int j = 0; j < 10; j++) {
+					if(leaveProgramMode()) {
+						logger.debugTag("The arduino has now left programming mode.");
+						break;
+					}
+				}
 				break;
 			}
 		}
 		
-		log.debugTag(version);
-		log.printToConsole(version);
+		//shut down readWrapper
+		readWrapper.terminate();
 	}
 
 	/**
@@ -80,7 +108,7 @@ public class STK500v1 {
 			int readResult = 0;
 			byte readByte;
 			while (readResult >= 0) {
-				readResult = read(2500);
+				readResult = read(10000);
 				if (readResult == -1) {
 					//TODO: Discover when/if this happens
 					logger.debugTag("End of stream encountered in checkIfStarterKitPresent()");
@@ -140,7 +168,10 @@ public class STK500v1 {
 				return false;
 			}
 			//If the response is valid, return. If not, continue
-			if (checkInput()) return true;
+			if (checkInput()) {
+				logger.debugTag("Sync achieved after " + (tries+1) + " tries.");
+				return true;
+			}
 		}
 		return false;
 	}
@@ -166,7 +197,7 @@ public class STK500v1 {
 		byte[] command = new byte[] {
 				ConstantsStk500v1.STK_ENTER_PROGMODE, ConstantsStk500v1.CRC_EOP 	
 		};
-
+		logger.debugTag("Sending bytes: " + Arrays.toString(command));
 		try {
 			output.write(command);
 		} catch (IOException e) {
@@ -525,7 +556,7 @@ public class STK500v1 {
 		int intInput = -1;
 		
 		try {
-			read(10000);
+			intInput = read(10000);
 //			intInput = input.read();
 		} catch (TimeoutException e) {
 			logger.debugTag("Timeout in checkInput!");
@@ -540,7 +571,7 @@ public class STK500v1 {
 
 		if (intInput == ConstantsStk500v1.STK_INSYNC){
 			try {
-				read(10000);
+				intInput = read(10000);
 //				intInput = input.read();
 			} catch (TimeoutException e) {
 				logger.debugTag("Timeout in checkInput!");
@@ -697,11 +728,16 @@ public class STK500v1 {
 	 */
 	private int read(long timeout) throws TimeoutException {
 		long now = System.currentTimeMillis();
+		if (!readWrapper.canAcceptWork()) {
+			logger.debugTag("Readwrapper wasn't ready to accept work");
+			return -1;
+		}
 		boolean accepted = readWrapper.requestReadByte();
 		if (!accepted) {
 			logger.debugTag("Job not accepted by wrapper");
 			return -1;
 		}
+		logger.debugTag("Job accepted by wrapper");
 		//ask if reading is done
 		while (!readWrapper.isDone()) {
 			if (System.currentTimeMillis() >= now + timeout) {
@@ -714,6 +750,7 @@ public class STK500v1 {
 				throw new TimeoutException("Reading timed out");
 			}
 		}
+		logger.debugTag("Wrapper reported job as complete");
 		return readWrapper.getResult();
 	}
 	
