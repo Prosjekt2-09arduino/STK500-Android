@@ -15,7 +15,7 @@ public class Hex {
 		// count lines and create an array
 		state = splitHex(bin);
 		
-		logger.debugTag("Hex file status: " + state);
+		logger.logcat("Hex file status: " + state, "v");
 	}
 	
 	/**
@@ -57,12 +57,13 @@ public class Hex {
 		
 		//The minimum length of a line is 6, including the start byte ':'
 		if(subHex.length<6) {
-			logger.debugTag("ERROR: The minimum size of a line is 6, this line was " + subHex.length);
+			logger.logcat("splitHex(): The minimum size of a line is 6, this line was " 
+					+ subHex.length, "w");
 			return false;
 		}
 		//If no bytes left
 		else if(subHex.length == 0) {
-			logger.debugTag("ERROR: No bytes left!");
+			logger.logcat("splitHex(): No bytes left!", "w");
 			return false;
 		}
 		else {
@@ -72,17 +73,17 @@ public class Hex {
 		
 		//The line must start with ':'
 		if(subHex[0] != 58) {
-			logger.debugTag("ERROR: Line not starting with ':' !");
+			logger.logcat("splitHex(): Line not starting with ':' !", "w");
 			return false;
 		}
 		//If record type is 0x01 (file end) and data size > 0, return false
 		else if(subHex[4]==1 && dataLength>0) {
-			logger.debugTag("ERROR: Contains data, but are told to stop!");
+			logger.logcat("splitHex(): Contains data, but are told to stop!", "w");
 			return false;
 		}
 		//If record type is 0x00 (data record) and data size equals 0, return false
 		else if(subHex[4]==0 && subHex[1]==0) {
-			logger.debugTag("ERROR: Told to send data, but contains no data!");
+			logger.logcat("splitHex(): Told to send data, but contains no data!", "w");
 			return false;
 		}
 		else {
@@ -117,10 +118,10 @@ public class Hex {
 				if(subHex[1] == 0) {
 					//Print to log if hex file contains more lines, but are told to stop
 					if(returnHex.length >0) {
-						logger.debugTag("ERROR: Told to stop, but contains more data!");
+						logger.logcat("splitHex(): Told to stop, but contains more data!", "w");
 //						return false;
 					}
-					logger.debugTag("End of hex file!");
+					logger.logcat("splitHex(): End of hex file!", "w");
 					return true;
 				}
 				else {
@@ -161,7 +162,7 @@ public class Hex {
 			return tempBinary;
 			
 		} catch (Exception e) {
-			logger.debugTag("ERROR: Out of bounds!");
+			logger.logcat("formatHexLine(): Out of bounds!", "e");
 			tempBinary = new byte[0];
 			return tempBinary;
 		}

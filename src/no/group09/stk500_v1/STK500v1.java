@@ -25,7 +25,7 @@ public class STK500v1 {
 		this.output = output;
 		this.input = input;
 		this.logger = log;
-		logger.debugTag("Initializing protocol code");
+		logger.logcat("STKv1 constructor: Initializing protocol code", "v");
 		
 		long startTime;
 		long endTime;
@@ -40,25 +40,26 @@ public class STK500v1 {
 				//nothing needs doing
 			}
 		}
-		logger.debugTag("ReadWrapper should be started now");
+		logger.logcat("STKv1 constructor: ReadWrapper should be started now", "v");
 		
 
-		log.debugTag("Initializing programmer");
+		log.logcat("STKv1 constructor: Initializing programmer", "v");
 		//try to get programmer version
 		
 		startTime = System.currentTimeMillis();
 		String version = checkIfStarterKitPresent();
 		endTime = System.currentTimeMillis();
 		
-		logger.debugTag("checkIfStarterKitPresent took: " + (endTime-startTime) + " ms");
+		logger.logcat("STKv1 constructor: checkIfStarterKitPresent took: " + 
+				(endTime-startTime) + " ms", "v");
 		
-		log.debugTag(version);
+		log.logcat("STKv1 constructor: " + version, "d");
 		log.printToConsole(version);
 		if (!version.equals("Arduino")) {
 			readWrapper.terminate();
 			while(readWrapperThread.isAlive()) {
 				try {
-					logger.debugTag("readWrapperThread is alive");
+					logger.logcat("STKv1 constructor: readWrapperThread is alive", "v");
 					Thread.sleep(100);
 				} catch (InterruptedException e) {
 				}
@@ -69,22 +70,23 @@ public class STK500v1 {
 		boolean entered;
 		startTime = System.currentTimeMillis();
 		for (int i = 0; i < 10; i++) {
-			logger.debugTag("Number of tries: " + i);
+			logger.logcat("STKv1 constructor: Number of tries: " + i, "v");
 			
 			entered = enterProgramMode();
 			endTime = System.currentTimeMillis();
 			
-			logger.debugTag("enterProgramMode took: " + (endTime-startTime) + " ms");
+			logger.logcat("STKv1 constructor: enterProgramMode took: " +
+					(endTime-startTime) + " ms", "v");
 			
 			if (entered) {
 				long now = System.currentTimeMillis();
 				
 				int syncFails = 0;
 				int syncOk = 0;
-				logger.debugTag("Spam sync to stay in programming mode.");
+				logger.logcat("STKv1 constructor: Spam sync to stay in programming mode.", "v");
 				while(System.currentTimeMillis() - now < 500) {
 					if(!getSynchronization()) {
-						logger.debugTag("Sync gave up...");
+						logger.logcat("STKv1 constructor: Sync gave up...", "w");
 						syncFails++;
 					}
 					else {
@@ -92,7 +94,7 @@ public class STK500v1 {
 					}
 				}
 				
-				logger.debugTag("OK: " + syncOk + ", fails: " + syncFails);
+				logger.logcat("STKv1 constructor: OK: " + syncOk + ", fails: " + syncFails, "v");
 				
 				boolean loadOk = false;
 				boolean readOk = false;
@@ -105,26 +107,32 @@ public class STK500v1 {
 						readPage = readPage((byte)0,(byte)0,true);
 						if(readPage!=null) {
 							readOk = true;
-							logger.debugTag("readPage not null: " + Arrays.toString(readPage));
+							logger.logcat("STKv1 constructor: readPage not null: "
+									+ Arrays.toString(readPage), "d");
 							break;
 						}
 					}
 				}
 				
-				logger.debugTag("Loading: " + loadOk + ", Reading: " + readOk);
+				logger.logcat("STKv1 constructor: Loading: " + loadOk + "," +
+						"Reading: "+ readOk, "v");
 				
 				if(readOk) {
-					logger.debugTag("Read page result: " + Arrays.toString(readPage));
+					logger.logcat("STKv1 constructor: Read page result: " +
+							Arrays.toString(readPage), "v");
 				}
 				
-				logger.debugTag("The ardunino has entered programming mode. Trying to leave...");
+				logger.logcat("STKv1 constructor: The ardunino has entered " +
+						"programming mode. Trying to leave...", "i");
 				for (int j = 0; j < 10; j++) {
 					if(leaveProgramMode()) {
-						logger.debugTag("The arduino has now left programming mode.");
+						logger.logcat("STKv1 constructor: The arduino has now " +
+								"left programming mode.", "i");
 						break;
 					}
 					if(j>2) {
-						logger.debugTag("Giving up on leaving programming mode.");
+						logger.logcat("STKv1 constructor: Giving up on leaving " +
+								"programming mode.", "i");
 						break;
 					}
 				}
@@ -143,7 +151,7 @@ public class STK500v1 {
 	 * @return -1 on failure and Arduino otherwise
 	 */
 	private String checkIfStarterKitPresent() {
-		logger.debugTag("Detect programmer");
+		logger.logcat("checkIfStarterKitPresent: Detect programmer", "v");
 		String version = "";
 
 		//Send request
@@ -152,9 +160,11 @@ public class STK500v1 {
 					ConstantsStk500v1.STK_GET_SIGN_ON, ConstantsStk500v1.CRC_EOP
 			};
 			output.write(out);
-			logger.debugTag("Sending bytes to get starter kit: " + Arrays.toString(out));
+			logger.logcat("checkIfStarterKitPresent: Sending bytes to get " +
+					"starter kit: " + Arrays.toString(out), "d");
 		} catch (IOException e) {
-			logger.debugTag("Communication problem: Can't send request for programmer version");
+			logger.logcat("checkIfStarterKitPresent: Communication problem: " +
+					"Can't send request for programmer version", "i");
 			return "-1";
 		}
 
@@ -167,12 +177,13 @@ public class STK500v1 {
 			while (readResult >= 0) {
 				readResult = read(TimeoutValues.CONNECT);
 				if (readResult == -1) {
-					//TODO: Discover when/if this happens
-					logger.debugTag("End of stream encountered in checkIfStarterKitPresent()");
+					//TODO: Discover when/if this happens. Separate genuine end of
+					//stream from job not accepted.
+					logger.logcat("checkIfStarterKitPresent: End of stream encountered", "d");
 					break;
 				}
 				readByte = (byte) readResult;
-				logger.debugTag("Read byte: " + readByte);
+				logger.logcat("checkIfStarterKitPresent: Read byte: " + readByte, "v");
 				if (responseIndex == 0 && readByte == ConstantsStk500v1.STK_INSYNC) {
 					//good response, next byte should be first part of the string
 					//optiboot never sends the string, fix
@@ -190,15 +201,15 @@ public class STK500v1 {
 				} else if (responseIndex == 0 && readByte == ConstantsStk500v1.STK_NOSYNC){
 					//not in sync
 					//TODO: Consider attempting to get synch
-					logger.debugTag("Unable to synchronize");
+					logger.logcat("checkIfStarterKitPresent: Unable to synchronize", "d");
 					break;
 				} else {
-					logger.debugTag("Not terminated by STK_OK in checkIfStarterKitPresent()!");
+					logger.logcat("checkIfStarterKitPresent: Not terminated by STK_OK!", "v");
 					break;
 				}
 			}
 		} catch (TimeoutException e) {
-			logger.debugTag("Timeout in checkIfStarterkitPresent!");
+			logger.logcat("checkIfStarterKitPresent: Timeout in checkIfStarterkitPresent!", "d");
 		}
 
 		return version;
@@ -220,13 +231,15 @@ public class STK500v1 {
 			try {
 				output.write(getSyncCommand);
 			} catch (IOException e) {
-				logger.debugTag("Unable to write output in getSynchronization");
+				logger.logcat("getSynchronization: Unable to write output in " +
+						"getSynchronization", "i");
 				e.printStackTrace();
 				return false;
 			}
 			//If the response is valid, return. If not, continue
 			if (checkInput()) {
-				logger.debugTag("Sync achieved after " + (tries+1) + " tries.");
+				logger.logcat("getSynchronization: Sync achieved after " + 
+						(tries+1) + " tries.", "d");
 				syncStack = 0;
 				return true;
 			}
@@ -263,18 +276,20 @@ public class STK500v1 {
 		byte[] command = new byte[] {
 				ConstantsStk500v1.STK_ENTER_PROGMODE, ConstantsStk500v1.CRC_EOP 	
 		};
-		logger.debugTag("Sending bytes to enter programming mode: " + Arrays.toString(command));
+		logger.logcat("enterProgramMode: Sending bytes to enter programming mode: "
+				+ Arrays.toString(command), "d");
 		try {
 			output.write(command);
 		} catch (IOException e) {
-			logger.debugTag("Communication problem on sending request to enter programming mode");
+			logger.logcat("enterProgramMode: Communication problem on sending" +
+					"request to enter programming mode", "i");
 			return false;
 		}
 
 		//check response
 		boolean ok = checkInput(true, ConstantsStk500v1.STK_ENTER_PROGMODE, TimeoutValues.CONNECT);
 		if (!ok) {
-			logger.debugTag("Unable to enter programming mode");
+			logger.logcat("enterProgramMode: Unable to enter programming mode", "d");
 		}
 		return ok;
 	}
@@ -293,13 +308,14 @@ public class STK500v1 {
 		try {
 			output.write(command);
 		} catch (IOException e) {
-			logger.debugTag("Communication problem on leaving programming mode");
+			logger.logcat("leaveProgramMode: Communication problem on leaving" +
+					"programming mode", "i");
 		}
 
 		//check response
 		boolean ok = checkInput();
 		if (!ok) {
-			logger.debugTag("Unable to leave programming mode");
+			logger.logcat("leaveProgramMode: Unable to leave programming mode", "d");
 		}
 		return ok;
 	}
@@ -326,7 +342,8 @@ public class STK500v1 {
 		try {
 			output.write(command);
 		} catch (IOException e) {
-			logger.debugTag("Unable to write output in checkForAddressAutoincrement");
+			logger.logcat("checkForAddressAutoincrement: Unable to write output " +
+					"in checkForAddressAutoincrement", "i");
 			e.printStackTrace();
 			return false;
 		}
@@ -352,11 +369,12 @@ public class STK500v1 {
 		loadAddr[2] = addr[0];
 		loadAddr[3] = ConstantsStk500v1.CRC_EOP;
 
-		logger.debugTag("Sending bytes to load address: " + Arrays.toString(loadAddr));
+		logger.logcat("loadAddress: Sending bytes to load address: " + 
+				Arrays.toString(loadAddr), "d");
 		try {
 			output.write(loadAddr);
 		} catch (IOException e) {
-			logger.debugTag("Unable to write output in loadAddress");
+			logger.logcat("loadAddress: Unable to write output in loadAddress", "i");
 			e.printStackTrace();
 			return false;
 		}
@@ -398,7 +416,8 @@ public class STK500v1 {
 		try {
 			output.write(programCommand);
 		} catch (IOException e) {
-			logger.debugTag("Could not write output in programDataMemory");
+			logger.logcat("programDataMemory: Could not write output in " +
+					"programDataMemory", "i");
 			e.printStackTrace();
 			return false;
 		}
@@ -444,7 +463,7 @@ public class STK500v1 {
 		try {
 			output.write(programPage);
 		} catch (IOException e) {
-			logger.debugTag("Could not write output in programDataMemory");
+			logger.logcat("programPage: Could not write output in programDataMemory", "i");
 			e.printStackTrace();
 			return false;
 		}
@@ -483,12 +502,14 @@ public class STK500v1 {
 		readCommand[3] = memtype;
 		readCommand[4] = ConstantsStk500v1.CRC_EOP;
 		
-		logger.debugTag("Sending bytes to readPage: " + Arrays.toString(readCommand));
+		logger.logcat("readPage: Sending bytes to readPage: " + 
+				Arrays.toString(readCommand), "v");
 		
 		try {
 			output.write(readCommand);
 		} catch (IOException e) {
-			logger.debugTag("Could not write output read command in readPage");
+			logger.logcat("readPage: Could not write output read command in " +
+					"readPage", "i");
 			e.printStackTrace();
 		}
 		
@@ -497,10 +518,10 @@ public class STK500v1 {
 		try {
 			numberOfBytes = read(buffer, TimeoutValues.READ);
 		} catch (TimeoutException e) {
-			logger.debugTag("Timed out when reading page");
+			logger.logcat("readPage: Timed out when reading page", "w");
 		}
 		
-		logger.debugTag("readPage buffer: " + Arrays.toString(buffer));
+		logger.logcat("readPage: readPage buffer: " + Arrays.toString(buffer), "v");
 		
 		if (numberOfBytes > 2 && buffer[0] == ConstantsStk500v1.STK_INSYNC &&
 				buffer[numberOfBytes-1] == ConstantsStk500v1.STK_OK) {
@@ -511,7 +532,7 @@ public class STK500v1 {
 			return null;
 		}
 		
-		logger.debugTag("readPage didn't receive anything!");
+		logger.logcat("readPage: readPage didn't receive anything!", "e");
 		//If the method does not return in one of the above, something went wrong
 		return null;
 	}
@@ -538,7 +559,8 @@ public class STK500v1 {
 		try {
 			output.write(readCommand);
 		} catch (IOException e) {
-			logger.debugTag("Could not write output read command in readDataMemory");
+			logger.logcat("readDataMemory: Could not write output read command " +
+					"in readDataMemory", "i");
 			e.printStackTrace();
 		}
 		
@@ -547,7 +569,7 @@ public class STK500v1 {
 		try {
 			numberOfBytes = input.read(in);
 		} catch (IOException e) {
-			logger.debugTag("Could not read input in readDataMemory");
+			logger.logcat("readDataMemory: Could not read input", "i");
 			e.printStackTrace();
 		}
 		
@@ -582,7 +604,8 @@ public class STK500v1 {
 		try {
 			output.write(readCommand);
 		} catch (IOException e) {
-			logger.debugTag("Could not write output read command in readFlashMemory");
+			logger.logcat("readFlashMemory: Could not write output read command " +
+					"in readFlashMemory", "i");
 			e.printStackTrace();
 		}
 
@@ -590,7 +613,7 @@ public class STK500v1 {
 		try {
 			numberOfBytes = input.read(in);
 		} catch (IOException e) {
-			logger.debugTag("Could not read input in readFlashMemory");
+			logger.logcat("readFlashMemory: Could not read input in readFlashMemory", "i");
 			e.printStackTrace();
 		}
 
@@ -639,11 +662,11 @@ public class STK500v1 {
 			intInput = read(timeout);
 //			intInput = input.read();
 		} catch (TimeoutException e) {
-			logger.debugTag("Timeout in checkInput!");
+			logger.logcat("checkInput: Timeout!", "d");
 		}
 
 		if (intInput == -1) {
-			logger.debugTag("End of stream encountered in checkInput");
+			logger.logcat("checkInput: End of stream encountered", "d");
 			return false;
 		}
 
@@ -654,11 +677,11 @@ public class STK500v1 {
 				intInput = read(timeout);
 //				intInput = input.read();
 			} catch (TimeoutException e) {
-				logger.debugTag("Timeout in checkInput!");
+				logger.logcat("checkInput: Timeout!", "d");
 			}
 
 			if (intInput == -1) {
-				logger.debugTag("End of stream encountered in checkInput");
+				logger.logcat("checkInput: End of stream encountered", "d");
 				return false;
 			}
 			
@@ -670,7 +693,8 @@ public class STK500v1 {
 				switch (command) {
 				case ConstantsStk500v1.STK_ENTER_PROGMODE : {
 					if (byteInput == ConstantsStk500v1.STK_NODEVICE) {
-						logger.debugTag("Error entering programming mode: Programmer not found");
+						logger.logcat("checkInput: Error entering programming " +
+								"mode: Programmer not found", "w");
 						//impossible to recover from
 						throw new RuntimeException("STK_NODEVICE returned");
 					} else if (byteInput == ConstantsStk500v1.STK_OK) {
@@ -690,16 +714,17 @@ public class STK500v1 {
 					//Two bytes sent. Response OK. Return true
 					return true;
 				}
-				logger.debugTag("Reponse was STK_INSYNC but not STK_OK in checkInput");
+				logger.logcat("checkInput: Reponse was STK_INSYNC but not STK_OK", "d");
 				return false;
 			}
 		}
 		else {
 			if(syncStack>2) {
-				logger.debugTag("Avoid stack overflow, not in sync!");
+				logger.logcat("checkInput: Avoid stack overflow, not in sync!", "d");
 				return false;
 			}
-			logger.debugTag("Response was not STK_INSYNC in checkInput, attempting synchronization.");
+			logger.logcat("checkInput: Response was not STK_INSYNC, attempting " +
+					"synchronization.", "d");
 			syncStack++;
 			getSynchronization();
 			//Synchronization is in place, but the operation was not successful. Try again.
@@ -730,7 +755,7 @@ public class STK500v1 {
 		try {
 			output.write(uploadFile);
 		} catch (IOException e) {
-			logger.debugTag("Unable to write output in programFlashMemory");
+			logger.logcat("programFlashMemory: Unable to write output in programFlashMemory", "i");
 			e.printStackTrace();
 			return false;
 		}
@@ -787,7 +812,8 @@ public class STK500v1 {
 			}
 			//Programming was unsuccessful. Try again without incrementing
 			else {
-				logger.debugTag("Not able to program page. Retrying with same page");
+				logger.logcat("uploadFile: Not able to program page. Retrying " +
+						"with same page", "d");
 				continue;
 			}
 			
@@ -873,14 +899,14 @@ public class STK500v1 {
 	private int read(byte[] buffer, TimeoutValues timeout) throws TimeoutException {
 		long now = System.currentTimeMillis();
 		if (!readWrapper.canAcceptWork()) {
-			logger.debugTag("Readwrapper wasn't ready to accept work");
+			logger.logcat("read: Readwrapper wasn't ready to accept work", "v");
 			return -1;
 		}
 		boolean accepted;
 		
 		//Check if single or buffered reading should be used
 		if(buffer!=null) {
-			logger.debugTag("Buffer not null");
+			logger.logcat("read: Buffer not null", "v");
 			accepted = readWrapper.requestReadIntoBuffer(buffer);
 		}
 		else {
@@ -888,23 +914,23 @@ public class STK500v1 {
 		}
 		
 		if (!accepted) {
-			logger.debugTag("Job not accepted by wrapper");
+			logger.logcat("read: Job not accepted by wrapper", "d");
 			return -1;
 		}
-		logger.debugTag("Job accepted by wrapper");
+		logger.logcat("read: Job accepted by wrapper", "v");
 		//ask if reading is done
 		while (!readWrapper.isDone()) {
 			if (System.currentTimeMillis() >= now + timeout.getTimeout()) {
 				if (readWrapper.checkIfFailed()) {
-					logger.debugTag("The wrapper failed, probably IOException.");
+					logger.logcat("read: The wrapper failed, probably IOException.", "d");
 					return -1;
 				}
-				logger.debugTag("Timed out, cancelling request...");
+				logger.logcat("read: Timed out, cancelling request...", "d");
 				readWrapper.cancelRequest();
 				throw new TimeoutException("Reading timed out");
 			}
 		}
-		logger.debugTag("Wrapper reported job as complete");
+		logger.logcat("read: Wrapper reported job as complete", "v");
 		return readWrapper.getResult();
 	}
 	

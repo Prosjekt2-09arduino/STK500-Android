@@ -88,7 +88,7 @@ public class MainActivity extends Activity {
 					public void run() {
 						byte[] binaryFile = new byte[10];
 						STK500v1 p = new STK500v1(outStream, inputStream, log, binaryFile);
-						log.debugTag("Protocol code stopped");
+						log.logcat("initializeExecuteButton: Protocol code stopped", "d");
 						log.printToConsole("Protocol code stopped");
 						handler.sendEmptyMessage(0);
 					}
@@ -125,11 +125,11 @@ public class MainActivity extends Activity {
 				btAdapter.cancelDiscovery();
 
 				log.printToConsole("\n...Connecting...");
-				log.debugTag("Connecting...");
+				log.logcat("initialiseConnectButton: Connecting...", "d");
 
 				try {
 					btSocket.connect();
-					log.debugTag("Connection OK...");
+					log.logcat("initialiseConnectButton: Connection OK...", "d");
 				} catch (IOException e) {
 					try {
 						btSocket.close();
@@ -149,7 +149,7 @@ public class MainActivity extends Activity {
 					log.printToConsole("\n...Input stream creation failed...");
 				}
 				log.printToConsole("\n...Sockets created...");
-				log.debugTag("Sockets created");
+				log.logcat("initialiseConnectButton: Sockets created", "d");
 			}
 		});
 	}

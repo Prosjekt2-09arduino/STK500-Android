@@ -12,7 +12,16 @@ public interface Logger {
 	public void printToConsole(String msg);
 	
 	/**
-	 * Write a debug message to the adb
+	 * Used to print messages to Logcat
+	 * 
+	 * @param msg A string with the message you want to print
+	 * @param level A string with the level of the message you want to print. This
+	 * string must match one of the following: <br>
+	 * v = verbose <br>
+	 * d = debug <br>
+	 * i = info <br>
+	 * w = warning <br>
+	 * e = error
 	 */
-	public void debugTag(String msg);
+	public void logcat(String msg, String level);
 }
