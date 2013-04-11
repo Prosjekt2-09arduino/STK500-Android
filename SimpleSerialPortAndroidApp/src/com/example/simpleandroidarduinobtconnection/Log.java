@@ -8,6 +8,7 @@ public class Log implements Logger {
 
 	Context ctxt;
 	MainActivity main;
+	public static final String TAG = "BT-for-STK";
 	
 	public Log(MainActivity main, Context ctxt){
 		this.ctxt = ctxt;
@@ -38,8 +39,21 @@ public class Log implements Logger {
 		});
 	}
 	
-	public void debugTag(String msg) {
-		android.util.Log.d("BT-for-STK", msg);
+	public void logcat(String msg, String level) {
+		if (level.equals("v")) {
+			android.util.Log.v(TAG, msg);
+		}
+		else if (level.equals("d")){
+			android.util.Log.d(TAG, msg);
+		}
+		else if (level.equals("i")) {
+			android.util.Log.i(TAG, msg);
+		}
+		else if (level.equals("w")) {
+			android.util.Log.w(TAG, msg);
+		}
+		else if (level.equals("e")) {
+			android.util.Log.e(TAG, msg);
+		}
 	}
-
 }
