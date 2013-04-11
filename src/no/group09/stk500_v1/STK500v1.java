@@ -13,9 +13,16 @@ public class STK500v1 {
 	private byte[] binary;
 	private ReadWrapper readWrapper;
 	private Thread readWrapperThread;
+	/**Used to prevent stack overflow**/
 	private int syncStack = 0;
+	
+	/** Used to interact with the binary file */
+	private Hex hexParser;
 
 	public STK500v1 (OutputStream output, InputStream input, Logger log, byte[] binary) {
+		
+		this.hexParser = new Hex(binary, log);
+		
 		this.output = output;
 		this.input = input;
 		this.logger = log;
@@ -405,8 +412,10 @@ public class STK500v1 {
 	 * @param writeFlash boolean indicating if it should be written to flash memory
 	 * or EEPROM. True = flash. False = EEPROM
 	 * @param data byte array of data
+	 * 
+	 * @return true if response is STK_INSYNC and STK_OK, false if not.
 	 */
-	private void programPage(byte bytes_high, byte bytes_low, boolean writeFlash, byte[] data) {
+	private boolean programPage(byte bytes_high, byte bytes_low, boolean writeFlash, byte[] data) {
 
 		byte[] programPage = new byte[6];
 		byte memtype;
@@ -419,10 +428,22 @@ public class STK500v1 {
 		programPage[2] = bytes_low;
 		programPage[3] = memtype;
 
+		//Put all the data together with the rest of the command
 		for (int i = 4; i < data.length; i++) {
 			programPage[i] = data[i];
 		}
+		
 		programPage[data.length] = ConstantsStk500v1.CRC_EOP;
+		
+		try {
+			output.write(programPage);
+		} catch (IOException e) {
+			logger.debugTag("Could not write output in programDataMemory");
+			e.printStackTrace();
+			return false;
+		}
+		
+		return checkInput();
 	}
 
 
@@ -724,39 +745,77 @@ public class STK500v1 {
 	 * of the binary byte array in pairs of two to the flash memory.
 	 */
 	private void uploadFile() {
-
-		byte flash_low, flash_high;
-		byte[] uploadFile = new byte[4];
-		int i = 0;
-
-		while (i < binary.length) {
+		
+		byte bytes_low, bytes_high;
+		
+		//Get the total length of the hex-file in number of lines
+		int hexLength = hexParser.getLines();
+		// Counter used to keep the position in the hex-file
+		int hexPosition = 0;
+		
+		//Run through the entire hex file
+		while (hexPosition < hexLength) {
 
 			//If i >= binary.length the file is uploaded
-			if (i >= binary.length){
+			//FIXME: Blir dette riktig lenge, siden den siste linjen i hex-filen
+			//er fylt med 0-er?
+			if (hexPosition >= hexLength){
 				logger.printToConsole("End of file. Upload finished with success.");
+				//TODO: Add proper ending here.
 				return;
 			}
-
+			
+			//Fetch the next line to be written from the hex-file
+			byte[] nextLine = hexParser.getHexLine(hexPosition);
+			//Find the length of the data field in this line
+			int dataLength = decodeByte(nextLine[0]);
+			//Byte array used to store data only
+			byte[] hexData = new byte[dataLength];
+			//Store data from the next line in the hex-file in a separate array
+			for (int i = 3; i < dataLength; i++) {
+				hexData[i] = nextLine[i]; 
+			}
+			
+			boolean programPageSuccess = programPage(nextLine[1], nextLine[2], true, hexData);
+			
+			//Programming of page was successful. Increment counter and program
+			//next page
+			if (programPageSuccess) {
+				hexPosition++;
+				continue;
+			}
+			//Programming was unsuccessful. Try again without incrementing
+			else {
+				logger.debugTag("Not able to program page. Retrying with same page");
+				continue;
+			}
+			
+			
+			
+			//This code section is used to program the flash memory. The previous
+			//section has been changed to fit programPage, so small changes has
+			//to be made if one want to use programFlashMemory() instead.
+			/*
 			//If i <= binary.length, fetch the two next bytes from the binary array
-			if (i + 1 <= binary.length) {
+			if (hexPosition + 1 <= hexLength) {
 				//Fetch the two next bytes in the binary array
-				flash_low = binary[i];
-				flash_high = binary[i+1];
+				bytes_low = binary[hexPosition];
+				bytes_high = binary[hexPosition+1];
 			}
 			//Fetch the last byte in the binary array
 			else {
-				flash_low = binary[i];
+				bytes_low = binary[hexPosition];
 
 				//FIXME: The low byte is now the last element in the binary array. What to do?
-				flash_high = 0;
+				bytes_high = 0;
 			}
 
 			//Program the flash and store the result
-			boolean programFlashSuccess = programFlashMemory(flash_low, flash_high);
+			boolean programFlashSuccess = programFlashMemory(bytes_low, bytes_high);
 
 			if (programFlashSuccess) {
 				//Increment position in binary array
-				i += 2;
+				hexPosition += 2;
 				//Two bytes sent. Response OK. Repeat.
 				continue;
 			}
@@ -765,6 +824,7 @@ public class STK500v1 {
 				logger.debugTag("programFlashMemory returned false. Unable to program flash. Retrying");
 				continue;
 			}
+			*/
 		}
 	}
 
