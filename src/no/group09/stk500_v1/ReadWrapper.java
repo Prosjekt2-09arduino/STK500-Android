@@ -29,9 +29,6 @@ public class ReadWrapper implements Runnable {
 	
 	int byteResult;
 	
-	/**Set when reader has something to report**/
-	private volatile boolean readerAlert;
-	
 	/**Set when caller wants to cancel a request**/
 	private boolean cancelRequest;
 	
@@ -47,7 +44,6 @@ public class ReadWrapper implements Runnable {
 	public ReadWrapper(InputStream input, Logger logger) {
 		this.input = input;
 		this.logger = logger;
-		readerAlert = false;
 		cancelRequest = false;
 		terminate = false;
 		oldState = null;

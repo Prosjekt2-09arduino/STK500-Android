@@ -10,7 +10,6 @@ public class STK500v1 {
 	private OutputStream output;
 	private InputStream input;
 	private Logger logger;
-	private byte[] binary;
 	private ReadWrapper readWrapper;
 	private Thread readWrapperThread;
 	/**Used to prevent stack overflow**/
@@ -26,7 +25,6 @@ public class STK500v1 {
 		this.output = output;
 		this.input = input;
 		this.logger = log;
-		this.binary = binary;
 		logger.debugTag("Initializing protocol code");
 		
 		long startTime;
@@ -236,14 +234,22 @@ public class STK500v1 {
 		return false;
 	}
 
+	/*
+	 * TODO: Fill or remove these methods
+	 */
 	private void getParameterValue() {
 	}
-
 	private void setParameterValue() {
 	}
-
 	private void setDeviceProgrammingParameters() {
-		
+	}
+	private void programLockBits() {
+	}
+	private void readLockBits() {
+	}
+	private void readSignatureBits() {
+	}
+	private void readOscillatorCalibrationByte() {
 	}
 
 	/**
@@ -381,6 +387,8 @@ public class STK500v1 {
 	 */
 	private boolean programDataMemory(byte data) {
 
+		//TODO: Add call to this method
+		
 		byte[] programCommand = new byte[3];
 
 		programCommand[0] = ConstantsStk500v1.STK_PROG_DATA;
@@ -398,8 +406,6 @@ public class STK500v1 {
 		return checkInput();
 	}
 
-	private void programLockBits() {
-	}
 
 	/**
 	 * Download a block of data to the starterkit and program it in FLASH or 
@@ -444,20 +450,6 @@ public class STK500v1 {
 		}
 		
 		return checkInput();
-	}
-
-
-
-	private void readLockBits() {
-	}
-
-	private void readSignatureBits() {
-	}
-
-	private void readOscillatorCalibrationByte() {
-	}
-
-	private void universalCommand() {
 	}
 
 	/**
@@ -535,6 +527,8 @@ public class STK500v1 {
 	 */
 	private byte[] readDataMemory() {
 		
+		//TODO: Add call to this method
+		
 		byte[] readCommand = new byte[2];
 		byte[] in = new byte[3];
 		
@@ -577,6 +571,8 @@ public class STK500v1 {
 	 */
 	private byte[] readFlashMemory() {
 
+		//TODO: Add call to this method
+		
 		byte[] readCommand = new byte[2];
 		byte[] in = new byte[4];
 
@@ -722,6 +718,8 @@ public class STK500v1 {
 	 */
 	private boolean programFlashMemory(byte flash_low, byte flash_high) {
 
+		//TODO: Add call to this method
+		
 		byte[] uploadFile = new byte[4];
 
 		uploadFile[0] = ConstantsStk500v1.STK_PROG_FLASH;
@@ -746,6 +744,9 @@ public class STK500v1 {
 	 */
 	private void uploadFile() {
 		
+		//TODO: Add call to this method
+		
+		//These variables is used if the last part of this method is uncommented
 		byte bytes_low, bytes_high;
 		
 		//Get the total length of the hex-file in number of lines
@@ -790,8 +791,6 @@ public class STK500v1 {
 				continue;
 			}
 			
-			
-			
 			//This code section is used to program the flash memory. The previous
 			//section has been changed to fit programPage, so small changes has
 			//to be made if one want to use programFlashMemory() instead.
@@ -835,6 +834,9 @@ public class STK500v1 {
 	 * @return
 	 */
 	private static int unPackTwoBytes(byte high, byte low) {
+		
+		//TODO: Add call to this method/remove
+		
 		int out = (decodeByte(high) << 8) | (decodeByte(low));
 		return out;
 	}
