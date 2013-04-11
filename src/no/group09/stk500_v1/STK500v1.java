@@ -15,6 +15,7 @@ public class STK500v1 {
 	private Thread readWrapperThread;
 	/**Used to prevent stack overflow**/
 	private int syncStack = 0;
+	private int programPageTries = 0;
 	
 	/** Used to interact with the binary file */
 	private Hex hexParser;
@@ -112,6 +113,9 @@ public class STK500v1 {
 						}
 					}
 				}
+				
+				logger.debugTag("Starting to write.");
+				uploadFile();
 				
 				logger.debugTag("Loading: " + loadOk + ", Reading: " + readOk);
 				
@@ -417,7 +421,7 @@ public class STK500v1 {
 	 */
 	private boolean programPage(byte bytes_high, byte bytes_low, boolean writeFlash, byte[] data) {
 
-		byte[] programPage = new byte[6];
+		byte[] programPage = new byte[4+data.length];
 		byte memtype;
 
 		if (writeFlash) memtype = (byte)'F';
@@ -427,10 +431,12 @@ public class STK500v1 {
 		programPage[1] = bytes_high;
 		programPage[2] = bytes_low;
 		programPage[3] = memtype;
+		
+		logger.debugTag("Length of data to program: " + data.length);
 
 		//Put all the data together with the rest of the command
 		for (int i = 4; i < data.length; i++) {
-			programPage[i] = data[i];
+			programPage[i] = data[i-4];
 		}
 		
 		programPage[data.length] = ConstantsStk500v1.CRC_EOP;
@@ -746,23 +752,24 @@ public class STK500v1 {
 	 */
 	private void uploadFile() {
 		
-		byte bytes_low, bytes_high;
+//		byte bytes_low, bytes_high;
 		
-		//Get the total length of the hex-file in number of lines
+		//Get the total length of the hex-file in number of lines.
 		int hexLength = hexParser.getLines();
 		// Counter used to keep the position in the hex-file
 		int hexPosition = 0;
 		
-		//Run through the entire hex file
+		//Run through the entire hex file, ignoring the last line
 		while (hexPosition < hexLength) {
-
-			//If i >= binary.length the file is uploaded
-			//FIXME: Blir dette riktig lenge, siden den siste linjen i hex-filen
-			//er fylt med 0-er?
-			if (hexPosition >= hexLength){
-				logger.printToConsole("End of file. Upload finished with success.");
+			
+			if (hexPosition > hexLength){
+				logger.debugTag("End of file. Upload finished with success.");
 				//TODO: Add proper ending here.
 				return;
+			}
+			else if(programPageTries>5) {
+				logger.debugTag("Could not write from line " + hexPosition);
+				break;
 			}
 			
 			//Fetch the next line to be written from the hex-file
@@ -776,6 +783,8 @@ public class STK500v1 {
 				hexData[i] = nextLine[i]; 
 			}
 			
+			logger.debugTag("Trying to write data from line " + hexPosition + " from hex file.");
+			logger.debugTag("Writing " + hexData.length + " bytes.");
 			boolean programPageSuccess = programPage(nextLine[1], nextLine[2], true, hexData);
 			
 			//Programming of page was successful. Increment counter and program
@@ -786,6 +795,7 @@ public class STK500v1 {
 			}
 			//Programming was unsuccessful. Try again without incrementing
 			else {
+				programPageTries++;
 				logger.debugTag("Not able to program page. Retrying with same page");
 				continue;
 			}
