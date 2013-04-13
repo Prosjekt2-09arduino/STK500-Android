@@ -325,7 +325,8 @@ public class STK500v1 {
 	}
 
     /**
-     * @return true if CRC_EOP was recieved.
+     * Erase the device to prepare for programming
+     * @return true if successful.
      */
     private boolean chipErase() {
         byte[] command = new byte[]{ConstantsStk500v1.STK_CHIP_ERASE, ConstantsStk500v1.CRC_EOP};
@@ -334,6 +335,7 @@ public class STK500v1 {
             output.write(command);
         } catch (IOException e) {
             logger.logcat("chipErase: Communication problem on chip erase.", "v");
+            return false;
         }
 
         boolean ok = checkInput();
