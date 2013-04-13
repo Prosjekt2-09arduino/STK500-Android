@@ -208,12 +208,12 @@ public class STK500v1 {
         try {
             output.write(command);
         } catch (IOException e) {
-            logger.debugTag("Communication problem on chip erase.");
+            logger.logcat("chipErase: Communication problem on chip erase.", "v");
         }
 
-        boolean ok = checkInput(true, ConstantsStk500v1.CRC_EOP);
+        boolean ok = checkInput();
         if (!ok) {
-            logger.debugTag("No sync. EOP not recieved for chip erase.");
+            logger.logcat("chipErase: No sync. EOP not recieved for chip erase.", "v");
         }
         return ok;
 
