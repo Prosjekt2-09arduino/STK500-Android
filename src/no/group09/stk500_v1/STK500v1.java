@@ -15,7 +15,7 @@ public class STK500v1 {
 	/**Used to prevent stack overflow**/
 	private int syncStack = 0;
 	private int programPageTries = 0;
-	
+
 	/** Used to interact with the binary file */
 	private Hex hexParser;
 
@@ -27,7 +27,7 @@ public class STK500v1 {
 		this.input = input;
 		this.logger = log;
 		logger.logcat("STKv1 constructor: Initializing protocol code", "v");
-		
+
 		long startTime;
 		long endTime;
 		
@@ -348,26 +348,26 @@ public class STK500v1 {
 		return ok;
 	}
 
-	/**
-	 * @return true if CRC_EOP was recieved.
-	 */
-	private boolean chipErase() {
-		byte[] command = new byte[]{ConstantsStk500v1.STK_CHIP_ERASE, ConstantsStk500v1.CRC_EOP};
-		
-		try {
-			output.write(command);
-		} catch (IOException e) {
-			logger.logcat("Communication problem on chip erase.", "w");
-		}
-		
-//		boolean ok = checkInput(true, ConstantsStk500v1.CRC_EOP, TimeoutValues.DEFAULT);
-		boolean ok = checkInput();
-		if (!ok) {
-			logger.logcat("No sync. EOP not recieved for chip erase.", "d");
-		}
-		
-		return ok;
-	}
+    /**
+     * Erase the device to prepare for programming
+     * @return true if successful.
+     */
+    private boolean chipErase() {
+        byte[] command = new byte[]{ConstantsStk500v1.STK_CHIP_ERASE, ConstantsStk500v1.CRC_EOP};
+
+        try {
+            output.write(command);
+        } catch (IOException e) {
+            logger.logcat("chipErase: Communication problem on chip erase.", "v");
+            return false;
+        }
+
+        boolean ok = checkInput();
+        if (!ok) {
+            logger.logcat("chipErase: No sync. EOP not recieved for chip erase.", "v");
+        }
+        return ok;
+    }
 
 	/**
 	 * Check if the write/read address is automatically incremented while using 
@@ -513,6 +513,7 @@ public class STK500v1 {
 		programPage[2] = bytes_low;
 		programPage[3] = memtype;
 
+
 		//Put all the data together with the rest of the command
 		for (int i = 0; i < data.length; i++) {
 			programPage[i+4] = data[i];
@@ -524,15 +525,15 @@ public class STK500v1 {
 		logger.logcat("programPage: Writing bytes: " + Arrays.toString(programPage), "d");
 		logger.logcat("programPage: Data array: " + Arrays.toString(data), "d");
 		logger.logcat("programPage: programPage array, length: " + programPage.length, "d");
-		
+
 		try {
 			output.write(programPage);
 		} catch (IOException e) {
 			logger.logcat("programPage: Could not write output in programDataMemory", "i");
 			e.printStackTrace();
 			return false;
-		}
-		
+	}
+
 		return checkInput();
 	}
 
@@ -720,7 +721,7 @@ public class STK500v1 {
 	 * @return true if response is STK_INSYNC and STK_OK, false if not.
 	 */
 	private boolean checkInput(boolean checkCommand, byte command, TimeoutValues timeout) {
-		
+
 		int intInput = -1;
 		
 		try {
@@ -834,7 +835,7 @@ public class STK500v1 {
 	 */
 	private boolean uploadFile() {
 		//These variables is used if the last part of this method is uncommented
-		
+
 		//Get the total length of the hex-file in number of lines.
 		int hexLength = hexParser.getLines();
 		
@@ -843,7 +844,7 @@ public class STK500v1 {
 		
 		// Counter used to keep the position in the hex-file
 		int hexPosition = 0;
-		
+
 		//Run through the entire hex file, ignoring the last line
 		while (hexPosition < hexLength) {
 			
@@ -874,6 +875,7 @@ public class STK500v1 {
 			for (int i = 0; i < dataLength; i++) {
 				hexData[i] = nextLine[i+4];
 			}
+
 			
 			
 			//Load address
@@ -887,7 +889,6 @@ public class STK500v1 {
 					break;
 				}
 			}
-			
 			
 			byte[] byteSize = packTwoBytes(dataLength);
 			
@@ -1057,15 +1058,15 @@ public class STK500v1 {
 	    private TimeoutValues(long t)
 	    {
 	        timeout = t;
-	    }
-
-	    /**
+			}
+		
+		/**
 	     * Get the milliseconds assigned to the timeout
 	     * @return timeout as a long in milliseconds
-	     */
+		 */
 	    public long getTimeout() {
 	    	return timeout;
-	    }
-	}
-	
+				}
+			}
+		
 }
