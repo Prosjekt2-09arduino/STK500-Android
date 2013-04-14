@@ -438,6 +438,8 @@ public class STK500v1 {
 
 		logger.logcat("loadAddress: Sending bytes to load address: " + 
 				Arrays.toString(loadAddr), "d");
+		int val = unPackTwoBytes(highAddress, lowAddress);
+		logger.logcat("Memory address to load: " + val, "d");
 		try {
 			output.write(loadAddr);
 		} catch (IOException e) {
