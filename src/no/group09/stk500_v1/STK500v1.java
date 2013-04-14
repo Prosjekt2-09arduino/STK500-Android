@@ -83,47 +83,71 @@ public class STK500v1 {
 				long now = System.currentTimeMillis();
 				
 				int syncFails = 0;
-				int syncOk = 0;
-				logger.logcat("STKv1 constructor: Spam sync to stay in programming mode.", "v");
-				while(System.currentTimeMillis() - now < 500) {
+				logger.logcat("STKv1 constructor: Spam sync to stay in " +
+						"programming mode.", "v");
+				while(System.currentTimeMillis() - now < 1000) {
 					if(!getSynchronization()) {
 						logger.logcat("STKv1 constructor: Sync gave up...", "w");
 						syncFails++;
 					}
 					else {
-						syncOk++;
+						//Sync ok
+						logger.logcat("STKv1 constructor: Sync OK after " +
+								(System.currentTimeMillis()-now) + " ms.", "v");
+						break;
 					}
 				}
 				
-				logger.logcat("STKv1 constructor: OK: " + syncOk + ", fails: " + syncFails, "v");
+				logger.logcat("STKv1 constructor: Sync fails: " + syncFails, "d");
 				
-				boolean loadOk = false;
-				boolean readOk = false;
-				byte[] readPage = null;
+//				boolean loadOk = false;
+//				boolean readOk = false;
+//				byte[] readPage = null;
+//				
+//				for (int j = 0; j < 10; j++) {
+//					if(loadAddress(0)) {
+//						loadOk = true;
+//						
+//						readPage = readPage((byte)0,(byte)0,true);
+//						if(readPage!=null) {
+//							readOk = true;
+//							logger.logcat("STKv1 constructor: readPage not null: "
+//									+ Arrays.toString(readPage), "d");
+//							break;
+//						}
+//					}
+//				}
+//				
+//				logger.logcat("STKv1 constructor: Loading: " + loadOk + "," +
+//						"Reading: "+ readOk, "v");
+//				
+//				if(readOk) {
+//					logger.logcat("STKv1 constructor: Read page result: " +
+//							Arrays.toString(readPage), "v");
+//				}
 				
-				for (int j = 0; j < 10; j++) {
-					if(loadAddress(0)) {
-						loadOk = true;
-						
-						readPage = readPage((byte)0,(byte)0,true);
-						if(readPage!=null) {
-							readOk = true;
-							logger.logcat("STKv1 constructor: readPage not null: "
-									+ Arrays.toString(readPage), "d");
-							break;
+				if(hexParser.getChecksumStatus()) {
+					if(chipErase()) {
+						logger.logcat("STKv1 constructor: Chip erased!", "d");
+						try {
+							Thread.sleep(9);
+						} catch (InterruptedException e) {
 						}
+						
+//						logger.logcat("STKv1 constructor: Starting to write.", "v");
+//						for (int j = 0; j < 10; j++) {
+//							if(loadAddress((byte)0,(byte)0)) {
+//								uploadFile();
+//								break;
+//							}
+//						}
+					}
+					else {
+						logger.logcat("STKv1 constructor: Chip not erased!", "w");
 					}
 				}
-				
-				logger.logcat("STKv1 constructor: Starting to write.", "v");
-				uploadFile();
-				
-				logger.logcat("STKv1 constructor: Loading: " + loadOk + "," +
-						"Reading: "+ readOk, "v");
-				
-				if(readOk) {
-					logger.logcat("STKv1 constructor: Read page result: " +
-							Arrays.toString(readPage), "v");
+				else {
+					logger.logcat("STKv1 constructor: Hex file not OK!", "w");
 				}
 				
 				logger.logcat("STKv1 constructor: The ardunino has entered " +
@@ -324,7 +348,25 @@ public class STK500v1 {
 		return ok;
 	}
 
-	private void chipErase() {
+	/**
+	 * @return true if CRC_EOP was recieved.
+	 */
+	private boolean chipErase() {
+		byte[] command = new byte[]{ConstantsStk500v1.STK_CHIP_ERASE, ConstantsStk500v1.CRC_EOP};
+		
+		try {
+			output.write(command);
+		} catch (IOException e) {
+			logger.logcat("Communication problem on chip erase.", "w");
+		}
+		
+//		boolean ok = checkInput(true, ConstantsStk500v1.CRC_EOP, TimeoutValues.DEFAULT);
+		boolean ok = checkInput();
+		if (!ok) {
+			logger.logcat("No sync. EOP not recieved for chip erase.", "d");
+		}
+		
+		return ok;
 	}
 
 	/**
@@ -366,11 +408,25 @@ public class STK500v1 {
 	 */
 	private boolean loadAddress(int address) {
 		byte[] addr = packTwoBytes(address);
+		return loadAddress(addr[0], addr[1]);
+	}
+	
+	/**
+	 * Load 16-bit address down to starterkit. This command is used to set the 
+	 * address for the next read or write operation to FLASH or EEPROM. Must 
+	 * always be used prior to Cmnd_STK_PROG_PAGE or Cmnd_STK_READ_PAGE.
+	 * 
+	 * @param address the address that is to be written as two bytes,
+	 * first high then low
+	 * 
+	 * @return true if it is OK to write the address, false if not.
+	 */
+	private boolean loadAddress(byte highAddress, byte lowAddress) {
 		byte[] loadAddr = new byte[4];
 
 		loadAddr[0] = ConstantsStk500v1.STK_LOAD_ADDRESS;
-		loadAddr[1] = addr[1];
-		loadAddr[2] = addr[0];
+		loadAddr[2] = highAddress;
+		loadAddr[1] = lowAddress;
 		loadAddr[3] = ConstantsStk500v1.CRC_EOP;
 
 		logger.logcat("loadAddress: Sending bytes to load address: " + 
@@ -390,7 +446,7 @@ public class STK500v1 {
 	 * Takes an integer, splits it into bytes, and puts it in an byte array
 	 * 
 	 * @param integer the integer that is to be split
-	 * @return an array with the integer as bytes
+	 * @return an array with the integer as bytes, with the most significant first
 	 */
 	private byte[] packTwoBytes(int integer) {
 		byte[] bytes = new byte[2];
@@ -446,7 +502,7 @@ public class STK500v1 {
 	 */
 	private boolean programPage(byte bytes_high, byte bytes_low, boolean writeFlash, byte[] data) {
 
-		byte[] programPage = new byte[4+data.length];
+		byte[] programPage = new byte[5+data.length];
 		byte memtype;
 
 		if (writeFlash) memtype = (byte)'F';
@@ -456,15 +512,18 @@ public class STK500v1 {
 		programPage[1] = bytes_high;
 		programPage[2] = bytes_low;
 		programPage[3] = memtype;
-		
-		logger.logcat("programPage: Length of data to program: " + data.length, "d");
 
 		//Put all the data together with the rest of the command
-		for (int i = 4; i < data.length; i++) {
-			programPage[i] = data[i-4];
+		for (int i = 0; i < data.length; i++) {
+			programPage[i+4] = data[i];
 		}
 		
-		programPage[data.length] = ConstantsStk500v1.CRC_EOP;
+		programPage[data.length+4] = ConstantsStk500v1.CRC_EOP;
+		
+		logger.logcat("programPage: Length of data to program: " + data.length, "d");
+		logger.logcat("programPage: Writing bytes: " + Arrays.toString(programPage), "d");
+		logger.logcat("programPage: Data array: " + Arrays.toString(data), "d");
+		logger.logcat("programPage: programPage array, length: " + programPage.length, "d");
 		
 		try {
 			output.write(programPage);
@@ -773,42 +832,68 @@ public class STK500v1 {
 	 * Used to upload files to the flash memory. This method sends the content
 	 * of the binary byte array in pairs of two to the flash memory.
 	 */
-	private void uploadFile() {
-		//TODO: Add call to this method
-		
+	private boolean uploadFile() {
 		//These variables is used if the last part of this method is uncommented
 		
 		//Get the total length of the hex-file in number of lines.
 		int hexLength = hexParser.getLines();
+		
+		logger.logcat("uploadFile: Length of hex file is " +
+				hexLength + " lines.", "d");
+		
 		// Counter used to keep the position in the hex-file
 		int hexPosition = 0;
 		
 		//Run through the entire hex file, ignoring the last line
 		while (hexPosition < hexLength) {
 			
-			if (hexPosition > hexLength){
-				logger.logcat("uploadFile: End of file. Upload finished with success.", "v");
-				//TODO: Add proper ending here.
-				return;
-			}
-			else if(programPageTries>5) {
-				logger.logcat("uploadFile: Could not write from line " + hexPosition, "w");
-				break;
+//			//Check if uploading is complete
+//			if (hexPosition >= hexLength){
+//				logger.logcat("uploadFile: End of file. "+
+//						"Upload finished with success.", "v");
+//				return true;
+//			}
+			//Check if the programmer failed to many times
+			if(programPageTries>5) {
+				logger.logcat("uploadFile: Could not write from line " +
+						hexPosition + " of " + hexLength, "w");
+				return false;
 			}
 			
 			//Fetch the next line to be written from the hex-file
 			byte[] nextLine = hexParser.getHexLine(hexPosition);
+			logger.logcat("uploadFile: hexParser: " + Arrays.toString(nextLine), "d");
+			
 			//Find the length of the data field in this line
 			int dataLength = decodeByte(nextLine[0]);
+			
 			//Byte array used to store data only
 			byte[] hexData = new byte[dataLength];
+			
 			//Store data from the next line in the hex-file in a separate array
-			for (int i = 3; i < dataLength; i++) {
-				hexData[i] = nextLine[i]; 
+			for (int i = 0; i < dataLength; i++) {
+				hexData[i] = nextLine[i+4];
 			}
 			
-			logger.logcat("uploadFile: Trying to write data from line " + hexPosition + " from hex file.", "v");
-			boolean programPageSuccess = programPage(nextLine[1], nextLine[2], true, hexData);
+			
+			//Load address
+			for (int j = 1; j < 20; j++) {
+				logger.logcat("uploadFile: Line: " + hexPosition +
+						" Loading address high: " + nextLine[1] +
+						", low: " + nextLine[2] +
+						", int: " + unPackTwoBytes(nextLine[1],nextLine[2]), "d");
+				if(loadAddress(nextLine[1], nextLine[2])) {
+					logger.logcat("uploadFile: loadAddress OK after " + j + " attempts.", "d");
+					break;
+				}
+			}
+			
+			
+			byte[] byteSize = packTwoBytes(dataLength);
+			
+			logger.logcat("uploadFile: Trying to write data from line " +
+					hexPosition + " from hex file.", "v");
+			boolean programPageSuccess = programPage(byteSize[0], byteSize[1], true, hexData);
 			
 			//Programming of page was successful. Increment counter and program
 			//next page
@@ -819,45 +904,62 @@ public class STK500v1 {
 			//Programming was unsuccessful. Try again without incrementing
 			else {
 				programPageTries++;
-				logger.logcat("uploadFile: Not able to program page. Retrying " +
-						"with same page", "d");
-				continue;
+				
+				for (int i = 0; i < 10; i++) {
+					logger.logcat("uploadFile: Line: " + hexPosition + ", Retry: " + i, "d");
+					if(loadAddress(nextLine[1], nextLine[2])) {
+						break;
+					}
+					else if(i == 9) {
+						logger.logcat("uploadFile: loadAddress failed!", "w");
+						return false;
+					}
+				}
+				return false;
 			}
-			
-			//This code section is used to program the flash memory. The previous
-			//section has been changed to fit programPage, so small changes has
-			//to be made if one want to use programFlashMemory() instead.
-			/*
-			//If i <= binary.length, fetch the two next bytes from the binary array
-			if (hexPosition + 1 <= hexLength) {
-				//Fetch the two next bytes in the binary array
-				bytes_low = binary[hexPosition];
-				bytes_high = binary[hexPosition+1];
-			}
-			//Fetch the last byte in the binary array
-			else {
-				bytes_low = binary[hexPosition];
-
-				//FIXME: The low byte is now the last element in the binary array. What to do?
-				bytes_high = 0;
-			}
-
-			//Program the flash and store the result
-			boolean programFlashSuccess = programFlashMemory(bytes_low, bytes_high);
-
-			if (programFlashSuccess) {
-				//Increment position in binary array
-				hexPosition += 2;
-				//Two bytes sent. Response OK. Repeat.
-				continue;
-			}
-			else if (!programFlashSuccess) {
-				//Not able to program flash. Retry.
-				logger.debugTag("programFlashMemory returned false. Unable to program flash. Retrying");
-				continue;
-			}
-			*/
 		}
+		logger.logcat("uploadFile: End of file. "+
+				"Upload finished with success.", "v");
+		return true;
+		
+//		logger.logcat("uploadFile: Something went wrong!", "w");
+//		return false;
+	}
+	
+	private void uploadUsingWriteFlash() {
+		//This code section is used to program the flash memory. The previous
+		//section has been changed to fit programPage, so small changes has
+		//to be made if one want to use programFlashMemory() instead.
+		/*
+		//If i <= binary.length, fetch the two next bytes from the binary array
+		if (hexPosition + 1 <= hexLength) {
+			//Fetch the two next bytes in the binary array
+			bytes_low = binary[hexPosition];
+			bytes_high = binary[hexPosition+1];
+		}
+		//Fetch the last byte in the binary array
+		else {
+			bytes_low = binary[hexPosition];
+
+			//FIXME: The low byte is now the last element in the binary array. What to do?
+			bytes_high = 0;
+		}
+
+		//Program the flash and store the result
+		boolean programFlashSuccess = programFlashMemory(bytes_low, bytes_high);
+
+		if (programFlashSuccess) {
+			//Increment position in binary array
+			hexPosition += 2;
+			//Two bytes sent. Response OK. Repeat.
+			continue;
+		}
+		else if (!programFlashSuccess) {
+			//Not able to program flash. Retry.
+			logger.debugTag("programFlashMemory returned false. Unable to program flash. Retrying");
+			continue;
+		}
+		*/
 	}
 
 	/**

@@ -150,10 +150,10 @@ public class Hex {
 		//Check if the line is out of bounds
 		try {
 			//Create a new temporary array
-			tempBinary = new byte[binList.get(line).size()];
+			tempBinary = new byte[binList.get(line).size()-1];
 						
 			//Add elements into an array
-			for(int i=0; i<binList.get(line).size(); i++) {
+			for(int i=0; i<binList.get(line).size()-1; i++) {
 				//Ignore the record element
 				if(i!=3) {
 					tempBinary[i] = binList.get(line).get(i);
@@ -161,7 +161,7 @@ public class Hex {
 			}
 			return tempBinary;
 			
-		} catch (Exception e) {
+		} catch (ArrayIndexOutOfBoundsException e) {
 			logger.logcat("formatHexLine(): Out of bounds!", "e");
 			tempBinary = new byte[0];
 			return tempBinary;
