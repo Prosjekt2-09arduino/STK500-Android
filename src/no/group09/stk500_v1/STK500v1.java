@@ -33,6 +33,7 @@ public class STK500v1 {
 
 		readWrapper = new ReadWrapper(input, log);
 		readWrapperThread = new Thread(readWrapper);
+		
 		readWrapperThread.start();
 		while (!readWrapper.checkIfStarted()) {
 			try {
@@ -42,9 +43,39 @@ public class STK500v1 {
 			}
 		}
 		logger.logcat("STKv1 constructor: ReadWrapper should be started now", "v");
-
+		//readWrapper.setStrictPolicy(false);
 
 		log.logcat("STKv1 constructor: Initializing programmer", "v");
+		//get sync and set parameters
+		if (!getSynchronization()) {
+			readWrapper.terminate();
+			return;
+			//give up
+		}
+		for (int i = 0; i < 10; i++) {
+			if (sendParameters()) {
+				logger.logcat("STK Constructor: succeeded in setting parameters", "i");
+				break;
+			} else if (i ==9) {
+				//give up
+				logger.logcat("STK Constructor: Unable to set parameters", "i");
+				readWrapper.terminate();
+				return;
+			}
+		}
+		
+		for (int i = 0; i < 10; i++) {
+			if (sendExtendedParameters()) {
+				logger.logcat("STK Constructor: succeeded in setting extended parameters", "i");
+				break;
+			} else if (i ==9) {
+				//give up
+				logger.logcat("STK Constructor: Unable to set extended parameters", "i");
+				readWrapper.terminate();
+				return;
+			}
+		}
+		
 		//try to get programmer version
 
 		startTime = System.currentTimeMillis();
@@ -67,6 +98,8 @@ public class STK500v1 {
 			}
 			return;
 		};
+		
+		
 
 		boolean entered;
 		startTime = System.currentTimeMillis();
@@ -100,6 +133,7 @@ public class STK500v1 {
 
 				logger.logcat("STKv1 constructor: Sync fails: " + syncFails, "d");
 
+				//TODO Make tryToRead work
 				//tryToRead();
 
 				if(hexParser.getChecksumStatus()) {
@@ -113,7 +147,9 @@ public class STK500v1 {
 						logger.logcat("STKv1 constructor: Starting to write.", "v");
 						for (int j = 0; j < 10; j++) {
 							if(loadAddress((byte)0,(byte)0)) {
+								//TODO Remember these
 								uploadFile();
+//								uploadZeroes(false);
 								break;
 							}
 						}
@@ -126,8 +162,7 @@ public class STK500v1 {
 					logger.logcat("STKv1 constructor: Hex file not OK!", "w");
 				}
 
-				logger.logcat("STKv1 constructor: The ardunino has entered " +
-						"programming mode. Trying to leave...", "i");
+				logger.logcat("STKv1 constructor: Trying to leave programming mode...", "i");
 				for (int j = 0; j < 10; j++) {
 					if(leaveProgramMode()) {
 						logger.logcat("STKv1 constructor: The arduino has now " +
@@ -146,6 +181,97 @@ public class STK500v1 {
 
 		//shut down readWrapper
 		readWrapper.terminate();
+	}
+	
+	private boolean sendExtendedParameters() {
+		//(byte) 45,  (byte) 05, (byte) 04, (byte) d7, (byte) c2, (byte) 00, (byte) 20
+		byte[] command = new byte[] {
+				(byte) 0x45,  (byte) 5, (byte) 4, (byte) 0xd7, (byte) 0xc2, (byte) 0, (byte) 0x20	
+			};
+		try {
+			logger.logcat("sendExtendedParameters: sending bytes: " + Arrays.toString(command), "d");
+			output.write(command);
+		} catch (IOException e) {
+			logger.logcat("sendExtendedParameters: error sending command", "d");
+		}
+		return checkInput();
+	}
+	
+	private boolean sendParameters() {
+		//B [42] .               [86] .    [00] .    [00] .    [01] .    [01] .    [01] .   [01] .     [03] .       [ff] .      [ff] .        [ff] .      [ff] .   ph[00] .     pl[80] .    [04] .    [00] .    [00] .    [00] .       [80] . [00]   [20]
+		byte[] command = new byte[] {
+			//(byte) 0x42, (byte) 0x86, (byte) 0, (byte) 0, (byte) 1, (byte) 1, (byte) 1, (byte) 1, (byte) 3, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0, (byte) 0x80, (byte) 4, (byte) 0, (byte) 0, (byte) 0, (byte) 0x80, (byte) 0, (byte) 0x20
+			(byte) 0x42, (byte) 0x86, (byte) 0, (byte) 0, (byte) 1, (byte) 1, (byte) 1, (byte) 1, (byte) 3, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0, (byte) 0x10, (byte) 4, (byte) 0, (byte) 0, (byte) 0, (byte) 0x80, (byte) 0, (byte) 0x20	
+		};
+		try {
+			logger.logcat("sendParameters: sending bytes: " + Arrays.toString(command), "d");
+			output.write(command);
+		} catch (IOException e) {
+			logger.logcat("sendparameters: error sending command", "d");
+		}
+		return checkInput();
+	}
+	
+	private void uploadZeroes(boolean usePages) {
+		int bytesToWrite = 128;
+		byte[] data = new byte[bytesToWrite];
+		byte[] highLow;
+		
+		byte lengthLow = (byte) bytesToWrite;
+		byte lengthHigh = (byte) 0;
+		
+		int errorCount = 0;
+		if (usePages) {
+			//use programpage
+			int linesWritten = 0;
+			logger.logcat("uploadZeroes: Initializing", "d");
+			for (int i = 0; i < 10 && errorCount < 10; i++) {
+				highLow = packTwoBytes(i * bytesToWrite);
+				if (loadAddress(highLow[0], highLow[1])) {
+					if (programPage(lengthHigh, lengthLow, true, data)) {
+						errorCount = 0;
+						linesWritten++;
+						continue;
+					} else {
+						logger.logcat("uploadZeroes: Failed to write line " + i, "d");
+						i--;
+					}
+				} else {
+					logger.logcat("uploadZeroes: Failed to load address for line " + i, "d");
+					i--;
+				}
+				errorCount++;
+			}
+			logger.logcat("uploadZeroes: Wrote " + linesWritten + " lines", "d");
+		} else {
+			//use program word
+			logger.logcat("uploadZeroes: Initializing word writing", "d");
+			int wordsWritten = 0;
+			int i = 0;
+			for (int j = 0; j < 4; j++) {
+				if (!loadAddress((byte) 0, (byte) 0)) {
+					logger.logcat("uploadZeroes: coudn't load 0 address", "i");
+					return;
+				} else {
+					break;
+					//continue method
+				}
+			}
+			
+			while (i < bytesToWrite / 2 && errorCount < 10) {
+				if (programFlashMemory((byte) 0, (byte) 0)) {
+					i+= 2; //increment one word
+					wordsWritten++;
+					errorCount = 0;
+				} else {
+					errorCount++;
+					logger.logcat("uploadZeroes: error writing word #" + wordsWritten, "d");
+				}
+			}
+			
+			logger.logcat("uploadZeroes: wrote " + wordsWritten + " words.", "i");
+			
+		}
 	}
 
 	/**
@@ -278,6 +404,7 @@ public class STK500v1 {
 				syncStack = 0;
 				return true;
 			}
+			logger.logcat("getSynchronization: No sync", "v");
 		}
 		return false;
 	}
@@ -432,8 +559,8 @@ public class STK500v1 {
 		byte[] loadAddr = new byte[4];
 
 		loadAddr[0] = ConstantsStk500v1.STK_LOAD_ADDRESS;
-		loadAddr[2] = highAddress;
 		loadAddr[1] = lowAddress;
+		loadAddr[2] = highAddress;
 		loadAddr[3] = ConstantsStk500v1.CRC_EOP;
 
 		logger.logcat("loadAddress: Sending bytes to load address: " + 

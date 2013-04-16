@@ -76,9 +76,9 @@ public class ReadWrapper implements Runnable {
 	 * byte), this will not be considered at all (result will be discarded).
 	 * @param choice true to enable, false to disable
 	 */
-	public synchronized void setStrictPolicy(boolean choice) {
-		logger.logcat("setStrictPolicy: Set strict policy to " + choice, "d");
-		strictPolicy = choice;
+	public synchronized void setStrictPolicy(boolean strict) {
+		logger.logcat("setStrictPolicy: Set strict policy to " + strict, "d");
+		strictPolicy = strict;
 	}
 	
 	/**
