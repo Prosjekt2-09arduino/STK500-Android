@@ -281,7 +281,7 @@ public class ReadWrapper implements Runnable {
 			}
 			case WAITING : {
 				if (oldState != state) {
-					logger.logcat("run: Wrapper idling...", "d");
+					logger.logcat("run: Wrapper idling...", "v");
 					oldState = state;
 				}
 				
@@ -600,12 +600,12 @@ public class ReadWrapper implements Runnable {
 		private void read() {
 			try {
 //				startWork = false;
-				logger.logcat("read: Single read in progress", "v");
+//				logger.logcat("read: Single read in progress", "v");
 				singleResult = input.read();
 				
 				String out = "Reader received byte: " + singleResult;
-				logger.printToConsole(out);
-				logger.logcat("read: " + out, "v");
+//				logger.printToConsole(out);
+//				logger.logcat("read: " + out, "v");
 				
 				resultReady = true;
 			} catch (IOException e) {

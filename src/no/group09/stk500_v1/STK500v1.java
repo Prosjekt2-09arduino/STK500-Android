@@ -145,14 +145,15 @@ public class STK500v1 {
 						}
 
 						logger.logcat("STKv1 constructor: Starting to write.", "v");
-						for (int j = 0; j < 10; j++) {
-							if(loadAddress((byte)0,(byte)0)) {
+//						for (int j = 0; j < 10; j++) {
+//							if(loadAddress((byte)0,(byte)0)) {
 								//TODO Remember these
-								uploadFile();
-//								uploadZeroes(false);
-								break;
-							}
-						}
+//								uploadFile();
+								logger.logcat("STKv1 constructor: ENTERING uploadZeroes()", "i");
+								uploadZeroes(true);
+//								break;
+//							}
+//						}
 					}
 					else {
 						logger.logcat("STKv1 constructor: Chip not erased!", "w");
@@ -213,8 +214,9 @@ public class STK500v1 {
 	}
 	
 	private void uploadZeroes(boolean usePages) {
-		int bytesToWrite = 128;
-		byte[] data = new byte[bytesToWrite];
+		int totalBytesToWrite = 128;
+		int bytesToWrite = 2;
+		byte[] data = new byte[] {1, 1};
 		byte[] highLow;
 		
 		byte lengthLow = (byte) bytesToWrite;
@@ -225,7 +227,7 @@ public class STK500v1 {
 			//use programpage
 			int linesWritten = 0;
 			logger.logcat("uploadZeroes: Initializing", "d");
-			for (int i = 0; i < 10 && errorCount < 10; i++) {
+			for (int i = 0; i < totalBytesToWrite/bytesToWrite && errorCount < 10; i++) {
 				highLow = packTwoBytes(i * bytesToWrite);
 				if (loadAddress(highLow[0], highLow[1])) {
 					if (programPage(lengthHigh, lengthLow, true, data)) {
@@ -251,7 +253,6 @@ public class STK500v1 {
 			for (int j = 0; j < 4; j++) {
 				if (!loadAddress((byte) 0, (byte) 0)) {
 					logger.logcat("uploadZeroes: coudn't load 0 address", "i");
-					return;
 				} else {
 					break;
 					//continue method
@@ -259,7 +260,9 @@ public class STK500v1 {
 			}
 			
 			while (i < bytesToWrite / 2 && errorCount < 10) {
+				logger.logcat("uploadZeroes: write word " + wordsWritten, "i");
 				if (programFlashMemory((byte) 0, (byte) 0)) {
+					logger.logcat("uploadZeroes: word written: " + wordsWritten, "i");
 					i+= 2; //increment one word
 					wordsWritten++;
 					errorCount = 0;
@@ -400,7 +403,7 @@ public class STK500v1 {
 			//If the response is valid, return. If not, continue
 			if (checkInput()) {
 				logger.logcat("getSynchronization: Sync achieved after " + 
-						(tries+1) + " tries.", "d");
+						(tries) + " tries.", "d");
 				syncStack = 0;
 				return true;
 			}
@@ -574,8 +577,16 @@ public class STK500v1 {
 			e.printStackTrace();
 			return false;
 		}
-
-		return checkInput();
+		
+		if (checkInput()){
+			logger.logcat("loadAddress: address loaded", "i");
+			return true;
+		}
+		else {
+			logger.logcat("loadAddress: failed to load address.", "i");
+			return false;
+		}
+		
 	}
 
 	/**
@@ -902,6 +913,8 @@ public class STK500v1 {
 					} else if (byteInput == ConstantsStk500v1.STK_OK) {
 						return true;
 					} else {
+						logger.logcat("checkInput: Reponse was STK_INSYNC but not " +
+								"STK_NODEVICE or STK_OK", "i");
 						return false;
 					}
 				}
@@ -928,9 +941,9 @@ public class STK500v1 {
 			logger.logcat("checkInput: Response was not STK_INSYNC, attempting " +
 					"synchronization.", "d");
 			syncStack++;
-			getSynchronization();
+			return getSynchronization();
 			//Synchronization is in place, but the operation was not successful. Try again.
-			return false;
+//			return false;
 		}
 	}
 
@@ -945,8 +958,6 @@ public class STK500v1 {
 	 */
 	private boolean programFlashMemory(byte flash_low, byte flash_high) {
 
-		//TODO: Add call to this method
-
 		byte[] uploadFile = new byte[4];
 
 		uploadFile[0] = ConstantsStk500v1.STK_PROG_FLASH;
@@ -955,14 +966,23 @@ public class STK500v1 {
 		uploadFile[3] = ConstantsStk500v1.CRC_EOP;
 
 		try {
+			logger.logcat("programFlashMemory: sending bytes to write word: " +
+					Arrays.toString(uploadFile), "d");
 			output.write(uploadFile);
 		} catch (IOException e) {
 			logger.logcat("programFlashMemory: Unable to write output in programFlashMemory", "i");
 			e.printStackTrace();
 			return false;
 		}
-
-		return checkInput();
+		
+		if(checkInput()) {
+			logger.logcat("programFlashMemory: word written", "d");
+			return true;
+		}
+		else {
+			logger.logcat("programFlashMemory: failed to write word", "d");
+			return false;
+		}
 	}
 
 	/**
@@ -1135,11 +1155,14 @@ public class STK500v1 {
 
 	/**
 	 * Will attempt to fill the entire buffer, if unable to fill it the number of read
-	 * bytes will be returned.
+	 * bytes will be returned. If no buffer is sent (null) this method will read
+	 * a single byte.
+	 * 
 	 * @param buffer Array of bytes to store the read bytes
 	 * @param timeout The selected timeout enumeration chosen. Used to determine
 	 * timeout length.
 	 * @return -1 if end of stream encountered, otherwise the number of bytes read
+	 * for a non null buffer, or the value of the single byte.
 	 * @throws TimeoutException 
 	 */
 	private int read(byte[] buffer, TimeoutValues timeout) throws TimeoutException {
@@ -1184,7 +1207,7 @@ public class STK500v1 {
 	 * Standard timeout values for how long to wait for reading results.
 	 */
 	private enum TimeoutValues{
-		DEFAULT(1000),
+		DEFAULT(5000),
 		CONNECT(3000),
 		READ(5000),
 		WRITE(1000);
