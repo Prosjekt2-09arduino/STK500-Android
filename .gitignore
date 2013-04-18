@@ -18,3 +18,5 @@ local.properties
 .DS_Store
 
 SimpleSerialPortAndroidApp/src/no
+
+src/no/group09/stk500_v1/HexTest.java

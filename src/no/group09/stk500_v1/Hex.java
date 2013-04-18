@@ -34,7 +34,26 @@ public class Hex {
 	 */
 	public int getLines()
 	{
-		return line;
+		if(state) {
+			return line;
+		}
+		else {
+			return -1;
+		}
+	}
+	
+	/**
+	 * 
+	 * @param line number
+	 * @return number of data bytes on line as unsigned integer
+	 */
+	public int getDataSizeOnLine(int line)
+	{
+		try {
+			return binList.get(line).get(0) & 0xFF;
+		} catch (IndexOutOfBoundsException e) {
+			return -1;
+		}
 	}
 	
 	/**
@@ -44,11 +63,67 @@ public class Hex {
 	public boolean getChecksumStatus()
 	{
 		return state;
-	}	
+	}
 	
 	/**
-	 * Split the hex input into an array and check if it is correct, including the checksum. Each line must start with ':' (colon), byte value 58.
-	 * The following values is 1 byte size, 2 byte address, n byte data, 1 byte checksum.
+	 * Check if a byte array is exactly the same as the data fields in a specific line.
+	 * If data contains more than 16 bytes, it will start on next line.
+	 * @param line to check
+	 * @param data to check
+	 * @return true if the data array is equal to the data array in this hex file
+	 */
+	public boolean checkBytesOnLine(int line, byte[] data) {
+		logger.logcat("splitHex: Input: " + bytesToHex(data), "d");
+		
+		//Return true if data length is zero
+		if(data.length == 0) {
+			return true;
+		}
+		
+//		for (int i = 4; i < binList.get(line).size()-1; i++) {
+		
+		int i = 0;
+		
+		//Remember to ignore size, address x 2, record and checksum,
+		//total 6 bytes
+		while(i<binList.get(line).size()) {
+			if(i==0) {
+				logger.logcat("splitHex: Hex-file line " + line + ": " +
+						bytesToHex(formatHexLine(line)), "d");
+			}
+			//Ignoring checksum and starting on next line
+			else if(i==binList.get(line).size()-5) {
+				//Only check more data fields if there is more data to check
+				if(data.length>binList.get(line).size()-6) {
+					logger.logcat("splitHex: Compare on next line (" + line + ")", "d");
+					
+					byte tempData[] = new byte[data.length - binList.get(line).size()+5];
+					for (int j = 0; j < tempData.length; j++) {
+						tempData[j] = data[j+binList.get(line).size()-5];
+					}
+					return checkBytesOnLine(line+1, tempData);
+				}
+				else {
+					return true;
+				}
+			}
+			//Read data not equal to hex file data!
+			else if(data[i-1] != binList.get(line).get(i+3)) {
+				logger.logcat("splitHex: Compared " + oneByteToHex(data[i-1]) + " with " +
+						oneByteToHex(binList.get(line).get(i+3)) +
+						" on line " + line + " failed! Data number " + i, "w");
+				return false;
+			}
+			i++;
+		}
+		return true;
+	}
+	
+	/**
+	 * Split the hex input into an array and check if it's correct.
+	 * Each line must start with ':' (colon), byte value 58. The following
+	 * values is 1 byte size, 2 byte address, n byte data, 1 byte checksum.
+	 * The record is not saved, only used to check what kind of data this is.
 	 * @param array with bytes
 	 * @return true if the hex file is correct.
 	 */
@@ -61,15 +136,9 @@ public class Hex {
 					+ subHex.length, "w");
 			return false;
 		}
-		//If no bytes left
-		else if(subHex.length == 0) {
-			logger.logcat("splitHex(): No bytes left!", "w");
-			return false;
-		}
-		else {
-			//save length
-			dataLength = subHex[1];
-		}
+		
+		//save length
+		dataLength = subHex[1];
 		
 		//The line must start with ':'
 		if(subHex[0] != 58) {
@@ -119,16 +188,18 @@ public class Hex {
 					//Print to log if hex file contains more lines, but are told to stop
 					if(returnHex.length >0) {
 						logger.logcat("splitHex(): Told to stop, but contains more data!", "w");
-//						return false;
+						return false;
 					}
 					logger.logcat("splitHex(): End of hex file!", "w");
 					return true;
 				}
 				else {
+					//Sending rest of the array back to splitHex
 					return splitHex(returnHex);
 				}
 			}
 			else {
+				logger.logcat("splitHex(): Checksum failed!", "w");
 				return false;
 			}
 		}
@@ -139,7 +210,7 @@ public class Hex {
 	 * Format line in hex file into an array with:
 	 * 1 byte size
 	 * 2 byte address
-	 * n byte address
+	 * n byte data
 	 * @param line number in hex file
 	 * @return byte array, empty if the line is out of bounds
 	 */
@@ -150,20 +221,23 @@ public class Hex {
 		//Check if the line is out of bounds
 		try {
 			//Create a new temporary array
-			tempBinary = new byte[binList.get(line).size()-1];
+			tempBinary = new byte[binList.get(line).size()-2];
 						
 			//Add elements into an array
 			for(int i=0; i<binList.get(line).size()-1; i++) {
-				//Ignore the record element
-				if(i!=3) {
+				//Ignore the record element, but save size and address
+				if(i<3) {
 					tempBinary[i] = binList.get(line).get(i);
+				}
+				//Ignore checksum
+				else if(i>3) {
+					tempBinary[i-1] = binList.get(line).get(i);
 				}
 			}
 			return tempBinary;
-			
-		} catch (ArrayIndexOutOfBoundsException e) {
-			logger.logcat("formatHexLine(): Out of bounds!", "e");
-			tempBinary = new byte[0];
+		} catch (IndexOutOfBoundsException e) {
+	//		//logger.logcat("formatHexLine(): Out of bounds!", "e");
+			tempBinary = null;
 			return tempBinary;
 		}
 	}
@@ -192,5 +266,36 @@ public class Hex {
 		byte check = (byte) (b-byteValue);
 				
 		return (check&0xFF) == (binList.get(line).get(length-1)&0xFF);
+	}
+	
+	/**
+	 * Convert a byte array into hex
+	 * @param bytes
+	 * @return string with hex
+	 */
+	public static String bytesToHex(byte[] bytes) {
+		final char[] hexArray = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
+		char[] hexChars = new char[bytes.length * 5];
+		int v;
+		for ( int j = 0; j < bytes.length; j++ ) {
+			v = bytes[j] & 0xFF;
+			hexChars[j * 5] = 91;
+			hexChars[j * 5 + 1] = hexArray[v >>> 4];
+			hexChars[j * 5 + 2] = hexArray[v & 0x0F];
+			hexChars[j * 5 + 3] = 93;
+			hexChars[j * 5 + 4] = 32;
+		}
+		return new String(hexChars);
+	}
+	
+	/**
+	 * Convert a byte into hex
+	 * @param b
+	 * @return string with one hex
+	 */
+	public static String oneByteToHex(byte b) {
+		byte[] tempB = new byte[1];
+		tempB[0] = b;
+		return new String(bytesToHex(tempB));
 	}
 }
