@@ -73,7 +73,7 @@ public class Hex {
 	 * @return true if the data array is equal to the data array in this hex file
 	 */
 	public boolean checkBytesOnLine(int line, byte[] data) {
-		logger.logcat("splitHex: Input: " + bytesToHex(data), "d");
+//		logger.logcat("splitHex: Input: " + bytesToHex(data), "d");
 		
 		//Return true if data length is zero
 		if(data.length == 0) {
@@ -107,12 +107,16 @@ public class Hex {
 					return true;
 				}
 			}
+			//
+			else if(data == null || data.length == 0) {
+				return true;
+			}
 			//Read data not equal to hex file data!
 			else if(data[i-1] != binList.get(line).get(i+3)) {
 				logger.logcat("splitHex: Compared " + oneByteToHex(data[i-1]) + " with " +
 						oneByteToHex(binList.get(line).get(i+3)) +
 						" on line " + line + " failed! Data number " + i, "w");
-				return false;
+//				return false;
 			}
 			i++;
 		}

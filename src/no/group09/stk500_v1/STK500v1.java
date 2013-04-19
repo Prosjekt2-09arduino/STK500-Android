@@ -145,7 +145,7 @@ public class STK500v1 {
 					logger.logcat("STKv1 constructor: Starting to write and read.", "v");
 					
 					//Upload
-//					uploadFile();
+					uploadFile();
 					
 					//Check uploaded data
 					readWrittenBytes(128);
@@ -521,6 +521,7 @@ public class STK500v1 {
 		
 		logger.logcat("chipEraseUniversal: Sending bytes to erase chip: " + Hex.bytesToHex(command), "d");
 		
+		//Try to write
 		try {
 			output.write(command);
 		} catch (IOException e) {
@@ -624,6 +625,8 @@ public class STK500v1 {
 	 * @return true if it is OK to write the address, false if not.
 	 */
 	private boolean loadAddress(byte highAddress, byte lowAddress) {
+		//TODO: (high + low) / 2
+		
 		byte[] loadAddr = new byte[4];
 
 		loadAddr[0] = ConstantsStk500v1.STK_LOAD_ADDRESS;
@@ -638,7 +641,7 @@ public class STK500v1 {
 		try {
 			output.write(loadAddr);
 		} catch (IOException e) {
-			logger.logcat("loadAddress: Unable to write output in loadAddress", "i");
+			logger.logcat("loadAddress: Unable to write output in loadAddress", "w");
 			e.printStackTrace();
 			return false;
 		}
@@ -648,7 +651,7 @@ public class STK500v1 {
 			return true;
 		}
 		else {
-			logger.logcat("loadAddress: failed to load address.", "i");
+			logger.logcat("loadAddress: failed to load address.", "w");
 			return false;
 		}
 		
@@ -753,7 +756,12 @@ public class STK500v1 {
 			e.printStackTrace();
 			return false;
 		}
-
+		
+		//Sleep
+		try {
+			Thread.sleep(5);
+		} catch (InterruptedException e) {
+		}
 		return checkInput();
 	}
 	
@@ -920,7 +928,7 @@ public class STK500v1 {
 			int loadErrors = 0;
 			
 			//Load address
-			if(!loadAddress(x*bytesToLoad)) {
+			if(!loadAddress(x*(bytesToLoad/16))) {
 				logger.logcat("readWrittenBytes: Could not load address...", "w");
 				if(loadErrors>3) {
 					logger.logcat("readWrittenBytes: Canceling reading...", "w");
@@ -965,7 +973,7 @@ public class STK500v1 {
 				else {
 					logger.logcat("readWrittenBytes: Line " + x + " NOT verified!", "w");
 					//TODO: upload file again
-					return false;
+//					return false;
 				}
 			}
 			//Try again if readPage fails
@@ -1297,8 +1305,10 @@ public class STK500v1 {
 						" Loading address high: " + Hex.oneByteToHex(nextLine[0][1]) +
 						", low: " + Hex.oneByteToHex(nextLine[0][2]) +
 						", int: " + unPackTwoBytes(nextLine[0][1],nextLine[0][2]), "d");
-//				if(loadAddress(nextLine[0][1], nextLine[0][2])) {
-				if(loadAddress((bytesOnLine*2)*hexPosition)) {
+				
+				if(loadAddress(unPackTwoBytes(nextLine[0][1], nextLine[0][2]) / 2)) { 
+//				if(loadAddress((bytesOnLine*2)*hexPosition)) {
+//				if(loadAddress((bytesOnLine)*hexPosition)) {
 					logger.logcat("uploadFile: loadAddress OK after " + j + " attempts.", "v");
 					break;
 				}
