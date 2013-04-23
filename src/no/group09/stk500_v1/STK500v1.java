@@ -15,6 +15,7 @@ public class STK500v1 {
 	/**Used to prevent stack overflow**/
 	private int syncStack = 0;
 	private int programPageTries = 0;
+	private double progress = 0;
 
 	/** Used to interact with the binary file */
 	private Hex hexParser;
@@ -33,16 +34,16 @@ public class STK500v1 {
 		
 		readWrapperThread.start();
 		while (!readWrapper.checkIfStarted()) {
-			try {
-				Thread.sleep(100);
-			} catch (InterruptedException e) {
-				//nothing needs doing
-			}
+//			try {
+//				Thread.sleep(100);
+//			} catch (InterruptedException e) {
+//				//nothing needs doing
+//			}
 		}
 		logger.logcat("STKv1 constructor: ReadWrapper should be started now", "v");
 		//readWrapper.setStrictPolicy(false);
 
-		programUsingOptiboot();
+		programUsingOptiboot(128);
 
 		//shut down readWrapper
 		readWrapper.terminate();
@@ -51,8 +52,10 @@ public class STK500v1 {
 	/**
 	 * Start the programming process. This includes initializing communication
 	 * with the bootloader.
+	 * @param numberOfBytes Number of bytes to write and read at once. Recommended
+	 * value is 128.
 	 */
-	private void programUsingOptiboot() {
+	private void programUsingOptiboot(int numberOfBytes) {
 
 		long startTime;
 		long endTime;
@@ -118,10 +121,10 @@ public class STK500v1 {
 				//tryToRead();
 
 				if(hexParser.getChecksumStatus()) {
-					try {
-						Thread.sleep(9);
-					} catch (InterruptedException e) {
-					}
+//					try {
+//						Thread.sleep(9);
+//					} catch (InterruptedException e) {
+//					}
 
 					logger.logcat("programUsingOptiboot: Starting to write and read.", "v");
 					
@@ -130,7 +133,7 @@ public class STK500v1 {
 					
 					//Check uploaded data
 					//TODO: Don't leave it hard coded
-					readWrittenBytes(128);
+					readWrittenBytes(numberOfBytes);
 				}
 				else {
 					logger.logcat("programUsingOptiboot: Hex file not OK!", "w");
@@ -160,11 +163,11 @@ public class STK500v1 {
 	private void stopReadWrapper() {
 		readWrapper.terminate();
 		while(readWrapperThread.isAlive()) {
-			try {
-				logger.logcat("stopReadWrapper: readWrapperThread is alive", "v");
-				Thread.sleep(100);
-			} catch (InterruptedException e) {
-			}
+//			try {
+//				logger.logcat("stopReadWrapper: readWrapperThread is alive", "v");
+//				Thread.sleep(100);
+//			} catch (InterruptedException e) {
+//			}
 		}
 		return;
 	}
@@ -631,34 +634,19 @@ public class STK500v1 {
 	 * @return true if it is OK to write the address, false if not.
 	 */
 	private boolean loadAddress(int address) {
-		byte[] addr = packTwoBytes(address);
-		return loadAddress(addr[0], addr[1]);
-	}
-
-	/**
-	 * Load 16-bit address down to starterkit. This command is used to set the 
-	 * address for the next read or write operation to FLASH or EEPROM. Must 
-	 * always be used prior to Cmnd_STK_PROG_PAGE or Cmnd_STK_READ_PAGE.
-	 * 
-	 * @param address the address that is to be written as two bytes,
-	 * first high then low
-	 * 
-	 * @return true if it is OK to write the address, false if not.
-	 */
-	private boolean loadAddress(byte highAddress, byte lowAddress) {
-		//TODO: (high + low) / 2
+		//Split integer address into two bytes address 
+		byte[] tempAddr = packTwoBytes(address / 2);
 		
 		byte[] loadAddr = new byte[4];
-
+		
 		loadAddr[0] = ConstantsStk500v1.STK_LOAD_ADDRESS;
-		loadAddr[1] = lowAddress;
-		loadAddr[2] = highAddress;
+		loadAddr[1] = tempAddr[1];
+		loadAddr[2] = tempAddr[0];
 		loadAddr[3] = ConstantsStk500v1.CRC_EOP;
 
 		logger.logcat("loadAddress: Sending bytes to load address: " + 
 				Hex.bytesToHex(loadAddr), "d");
-		int val = unPackTwoBytes(highAddress, lowAddress);
-		logger.logcat("loadAddress: Memory address to load: " + val, "d");
+		logger.logcat("loadAddress: Memory address to load: " + address, "d");
 		try {
 			output.write(loadAddr);
 		} catch (IOException e) {
@@ -675,7 +663,20 @@ public class STK500v1 {
 			logger.logcat("loadAddress: failed to load address.", "w");
 			return false;
 		}
-		
+	}
+
+	/**
+	 * Load 16-bit address down to starterkit. This command is used to set the 
+	 * address for the next read or write operation to FLASH or EEPROM. Must 
+	 * always be used prior to Cmnd_STK_PROG_PAGE or Cmnd_STK_READ_PAGE.
+	 * 
+	 * @param address the address that is to be written as two bytes,
+	 * first high then low
+	 * 
+	 * @return true if it is OK to write the address, false if not.
+	 */
+	private boolean loadAddress(byte highAddress, byte lowAddress) {
+		return loadAddress(unPackTwoBytes(highAddress, lowAddress));
 	}
 
 	/**
@@ -779,10 +780,10 @@ public class STK500v1 {
 		}
 		
 		//Sleep
-		try {
-			Thread.sleep(5);
-		} catch (InterruptedException e) {
-		}
+//		try {
+//			Thread.sleep(5);
+//		} catch (InterruptedException e) {
+//		}
 		return checkInput();
 	}
 	
@@ -930,6 +931,9 @@ public class STK500v1 {
 	 * @return true if read data is the same hex file
 	 */
 	private boolean readWrittenBytes(int bytesToLoad) {
+		progress = 50;
+		logger.logcat("progress: " + getProgress() + " %", "d");
+		
 		if(bytesToLoad > 0 && bytesToLoad % 16 != 0) {
 			logger.logcat("readWrittenBytes: Must be 16^n and not 0, was " + bytesToLoad, "w");
 			return false;
@@ -949,7 +953,7 @@ public class STK500v1 {
 			int loadErrors = 0;
 			
 			//Load address
-			if(!loadAddress(x*(bytesToLoad/16))) {
+			if(!loadAddress(x*(bytesToLoad/16)*2)) {
 				logger.logcat("readWrittenBytes: Could not load address...", "w");
 				if(loadErrors>3) {
 					logger.logcat("readWrittenBytes: Canceling reading...", "w");
@@ -970,8 +974,8 @@ public class STK500v1 {
 				}
 				
 				readLines++;
-				dataSize += hexParser.getDataSizeOnLine(x+y);
-				logger.logcat("readWrittenBytes: New dataSize: " + dataSize + " line " + (x+y), "v");
+				dataSize += hexParser.getDataSizeOnLine(x);
+				logger.logcat("readWrittenBytes: New dataSize: " + dataSize + " line " + (x), "v");
 				x++;
 			}
 			
@@ -982,19 +986,17 @@ public class STK500v1 {
 			if(readArray != null) { 
 //				logger.logcat("readWrittenBytes: Read bytes: " + Hex.bytesToHex(readArray), "d");
 				
-//				byte tempArray[] = new byte[readArray.length-2];
-//				for (int i = 0; i < readArray.length-2; i++) {
-//					tempArray[i] = readArray[i+1];
-//				}
-				
 				//Compare read data and data on line x in the hex file
 				if(hexParser.checkBytesOnLine(x-readLines, readArray)) {
 					logger.logcat("readWrittenBytes: Verified line " + x + "!", "d");
+					
+					progress = (double)x / (double)hexParser.getLines() * 50 + 50;
+					logger.logcat("progress: " + getProgress() + " %", "d");
 				}
 				else {
 					logger.logcat("readWrittenBytes: Line " + x + " NOT verified!", "w");
 					//TODO: upload file again
-//					return false;
+					return false;
 				}
 			}
 			//Try again if readPage fails
@@ -1004,11 +1006,11 @@ public class STK500v1 {
 				return false;
 			}
 			
-			//Need to sleep to not get exceptions
-			try {
-				Thread.sleep(8);
-			} catch (InterruptedException e) {
-			}
+//			//Need to sleep to not get exceptions
+//			try {
+//				Thread.sleep(5);
+//			} catch (InterruptedException e) {
+//			}
 		}
 		return true;
 	}
@@ -1254,6 +1256,9 @@ public class STK500v1 {
 	 * of the binary byte array in pairs of two to the flash memory.
 	 */
 	private boolean uploadFile() {
+		progress = 0;
+		logger.logcat("progress: " + getProgress() + " %", "d");
+		
 		if(!chipEraseUniversal()) {
 			logger.logcat("uploadFile: Chip not erased!", "w");
 			return false;
@@ -1270,15 +1275,6 @@ public class STK500v1 {
 
 		//Run through the entire hex file, ignoring the last line
 		while (hexPosition < hexLength) {
-
-			//			//Check if uploading is complete
-			//			if (hexPosition >= hexLength){
-			//				logger.logcat("uploadFile: End of file. "+
-			//						"Upload finished with success.", "v");
-			//				return true;
-			//			}
-			//Check if the programmer failed to many times
-			
 			//loadAddress
 			if(programPageTries>3) {
 				logger.logcat("uploadFile: Could not write from line " +
@@ -1289,7 +1285,6 @@ public class STK500v1 {
 			//How many lines from hex file should be combine.
 			//Always divide on 16 to get lines
 			int bytesOnLine = 128/16;
-//			int bytesOnLine = 16/16;
 			
 			byte[][] nextLine = new byte[bytesOnLine][];
 			
@@ -1327,9 +1322,7 @@ public class STK500v1 {
 						", low: " + Hex.oneByteToHex(nextLine[0][2]) +
 						", int: " + unPackTwoBytes(nextLine[0][1],nextLine[0][2]), "d");
 				
-				if(loadAddress(unPackTwoBytes(nextLine[0][1], nextLine[0][2]) / 2)) { 
-//				if(loadAddress((bytesOnLine*2)*hexPosition)) {
-//				if(loadAddress((bytesOnLine)*hexPosition)) {
+				if(loadAddress(unPackTwoBytes(nextLine[0][1], nextLine[0][2]))) { 
 					logger.logcat("uploadFile: loadAddress OK after " + j + " attempts.", "v");
 					break;
 				}
@@ -1344,15 +1337,18 @@ public class STK500v1 {
 			//Programming of page was successful. Increment counter and program
 			//next page
 			if (programPageSuccess) {
-//				hexPosition++;
 				hexPosition+=bytesOnLine;
+				
+				progress = ((double)hexPosition/(double)hexLength) * 50;
+				logger.logcat("progress: " + getProgress() + " %", "d");
+				
 				continue;
 			}
 			//Programming was unsuccessful. Try again without incrementing
 			else {
 				programPageTries++;
 
-				for (int i = 0; i < 10; i++) {
+				for (int i = 0; i < 2; i++) {
 					logger.logcat("uploadFile: Line: " + hexPosition + ", Retry: " + i, "w");
 					if(loadAddress(nextLine[0][1], nextLine[0][2])) {
 						break;
@@ -1367,27 +1363,7 @@ public class STK500v1 {
 		}
 		logger.logcat("uploadFile: End of file. "+
 				"Upload finished with success.", "d");
-		
-//		int hexPosition = 17;
-//		
-//		//Read from AVR to verify
-//		for (int i = 0; i < hexParser.getLines(); i++) {
-//			
-//			loadAddress( (byte)0, (byte)0);
-//			
-////			for (int j = 0; j < 5; j++) {
-////				if(loadAddress( (byte)((i*32) & 0xFF), (byte)(((i*32) >> 8) & 0xFF))) {
-////					break;
-////				}
-////			}
-//			
-//			byte[] readArray = readPage((byte)(((32) >> 8) & 0xFF), (byte)((32) & 0xFF), true);
-//		}
-		
 		return true;
-
-		//		logger.logcat("uploadFile: Something went wrong!", "w");
-		//		return false;
 	}
 
 	private void uploadUsingWriteFlash() {
@@ -1533,5 +1509,13 @@ public class STK500v1 {
 		public long getTimeout() {
 			return timeout;
 		}
+	}
+	
+	/**
+	 * Return progress as integer, 0 - 100.
+	 * @return progress
+	 */
+	public int getProgress() {
+		return (int)progress;
 	}
 }
