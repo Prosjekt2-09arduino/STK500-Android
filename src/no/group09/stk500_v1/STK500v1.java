@@ -28,9 +28,6 @@ public class STK500v1 {
 		this.logger = log;
 		logger.logcat("STKv1 constructor: Initializing protocol code", "v");
 
-		long startTime;
-		long endTime;
-
 		readWrapper = new ReadWrapper(input, log);
 		readWrapperThread = new Thread(readWrapper);
 		
@@ -45,93 +42,77 @@ public class STK500v1 {
 		logger.logcat("STKv1 constructor: ReadWrapper should be started now", "v");
 		//readWrapper.setStrictPolicy(false);
 
-		log.logcat("STKv1 constructor: Initializing programmer", "v");
+		programUsingOptiboot();
+
+		//shut down readWrapper
+		readWrapper.terminate();
+	}
+	
+	/**
+	 * Start the programming process. This includes initializing communication
+	 * with the bootloader.
+	 */
+	private void programUsingOptiboot() {
+
+		long startTime;
+		long endTime;
+		boolean entered;
+		logger.logcat("programUsingOptiboot: Initializing programmer", "v");
 		//get sync and set parameters
 		if (!getSynchronization()) {
-			readWrapper.terminate();
+			stopReadWrapper();
 			return;
 			//give up
 		}
-//		for (int i = 0; i < 10; i++) {
-//			if (sendParameters()) {
-//				logger.logcat("STK Constructor: succeeded in setting parameters", "i");
-//				break;
-//			} else if (i ==9) {
-//				//give up
-//				logger.logcat("STK Constructor: Unable to set parameters", "i");
-//				readWrapper.terminate();
-//				return;
-//			}
-//		}
-//		
-//		for (int i = 0; i < 10; i++) {
-//			if (sendExtendedParameters()) {
-//				logger.logcat("STK Constructor: succeeded in setting extended parameters", "i");
-//				break;
-//			} else if (i ==9) {
-//				//give up
-//				logger.logcat("STK Constructor: Unable to set extended parameters", "i");
-//				readWrapper.terminate();
-//				return;
-//			}
-//		}
 		
-		//try to get programmer version
+		//TODO: Not used by Optiboot
+		//setParameters();
 
 		startTime = System.currentTimeMillis();
+		//try to get programmer version
 		String version = checkIfStarterKitPresent();
 		endTime = System.currentTimeMillis();
 
-		logger.logcat("STKv1 constructor: checkIfStarterKitPresent took: " + 
+		logger.logcat("programUsingOptiboot: checkIfStarterKitPresent took: " + 
 				(endTime-startTime) + " ms", "v");
 
-		log.logcat("STKv1 constructor: " + version, "i");
-		log.printToConsole(version);
+		logger.logcat("programUsingOptiboot: " + version, "i");
+		logger.printToConsole(version);
+		
 		if (!version.equals("Arduino")) {
-			readWrapper.terminate();
-			while(readWrapperThread.isAlive()) {
-				try {
-					logger.logcat("STKv1 constructor: readWrapperThread is alive", "v");
-					Thread.sleep(100);
-				} catch (InterruptedException e) {
-				}
-			}
+			stopReadWrapper();
 			return;
 		};
-		
-		
-		//Enter programming mode
-		boolean entered;
 		startTime = System.currentTimeMillis();
 		for (int i = 0; i < 10; i++) {
-			logger.logcat("STKv1 constructor: Number of tries: " + i, "v");
+			logger.logcat("programUsingOptiboot: Number of tries: " + i, "v");
 
 			entered = enterProgramMode();
 			endTime = System.currentTimeMillis();
 
-			logger.logcat("STKv1 constructor: enterProgramMode took: " +
+			logger.logcat("programUsingOptiboot: enterProgramMode took: " +
 					(endTime-startTime) + " ms", "v");
 
 			if (entered) {
 				long now = System.currentTimeMillis();
 
 				int syncFails = 0;
-				logger.logcat("STKv1 constructor: Spam sync to stay in " +
+				logger.logcat("programUsingOptiboot: Spam sync to stay in " +
 						"programming mode.", "v");
 				while(System.currentTimeMillis() - now < 1000) {
 					if(!getSynchronization()) {
-						logger.logcat("STKv1 constructor: Sync gave up...", "w");
+						logger.logcat("programUsingOptiboot: Sync gave up...", "w");
 						syncFails++;
 					}
 					else {
 						//Sync ok
-						logger.logcat("STKv1 constructor: Sync OK after " +
+						logger.logcat("programUsingOptiboot: Sync OK after " +
 								(System.currentTimeMillis()-now) + " ms.", "v");
 						break;
 					}
 				}
 
-				logger.logcat("STKv1 constructor: Sync fails: " + syncFails, "v");
+				logger.logcat("programUsingOptiboot: Sync fails: " + syncFails, "v");
 
 				//TODO Make tryToRead work
 				//tryToRead();
@@ -142,27 +123,28 @@ public class STK500v1 {
 					} catch (InterruptedException e) {
 					}
 
-					logger.logcat("STKv1 constructor: Starting to write and read.", "v");
+					logger.logcat("programUsingOptiboot: Starting to write and read.", "v");
 					
 					//Upload
 					uploadFile();
 					
 					//Check uploaded data
+					//TODO: Don't leave it hard coded
 					readWrittenBytes(128);
 				}
 				else {
-					logger.logcat("STKv1 constructor: Hex file not OK!", "w");
+					logger.logcat("programUsingOptiboot: Hex file not OK!", "w");
 				}
 
-				logger.logcat("STKv1 constructor: Trying to leave programming mode...", "i");
+				logger.logcat("programUsingOptiboot: Trying to leave programming mode...", "i");
 				for (int j = 0; j < 3; j++) {
 					if(leaveProgramMode()) {
-						logger.logcat("STKv1 constructor: The arduino has now " +
+						logger.logcat("programUsingOptiboot: The arduino has now " +
 								"left programming mode.", "i");
 						break;
 					}
 					if(j>2) {
-						logger.logcat("STKv1 constructor: Giving up on leaving " +
+						logger.logcat("programUsingOptiboot: Giving up on leaving " +
 								"programming mode.", "i");
 						break;
 					}
@@ -170,9 +152,21 @@ public class STK500v1 {
 				break;
 			}
 		}
+	}
 
-		//shut down readWrapper
+	/**
+	 * Attempts to stop the read wrapper
+	 */
+	private void stopReadWrapper() {
 		readWrapper.terminate();
+		while(readWrapperThread.isAlive()) {
+			try {
+				logger.logcat("stopReadWrapper: readWrapperThread is alive", "v");
+				Thread.sleep(100);
+			} catch (InterruptedException e) {
+			}
+		}
+		return;
 	}
 	
 	//TODO: This is not used by optiboot!
@@ -206,6 +200,33 @@ public class STK500v1 {
 //		}
 //		return checkInput();
 //	}
+	
+	//TODO: Not used by optiboot
+	private void setParameters() {
+	//		for (int i = 0; i < 10; i++) {
+	//		if (sendParameters()) {
+	//			logger.logcat("STK Constructor: succeeded in setting parameters", "i");
+	//			break;
+	//		} else if (i ==9) {
+	//			//give up
+	//			logger.logcat("STK Constructor: Unable to set parameters", "i");
+	//			readWrapper.terminate();
+	//			return;
+	//		}
+	//	}
+	//	
+	//	for (int i = 0; i < 10; i++) {
+	//		if (sendExtendedParameters()) {
+	//			logger.logcat("STK Constructor: succeeded in setting extended parameters", "i");
+	//			break;
+	//		} else if (i ==9) {
+	//			//give up
+	//			logger.logcat("STK Constructor: Unable to set extended parameters", "i");
+	//			readWrapper.terminate();
+	//			return;
+	//		}
+	//	}
+	}
 	
 	private void uploadZeroes(boolean usePages) {
 		int totalBytesToWrite = 128;
@@ -375,9 +396,9 @@ public class STK500v1 {
 
 	/**
 	 * Command to try to regain synchronization when sync is lost. Returns when
-	 * sync is regained, or it exceeds 100 tries.
+	 * sync is regained, or it exceeds 10 tries.
 	 * 
-	 * @return true if sync is regained, false if number of tries exceeds 100
+	 * @return true if sync is regained, false if number of tries exceeds 10
 	 */
 	private boolean getSynchronization() {
 		byte[] getSyncCommand = {ConstantsStk500v1.STK_GET_SYNC, ConstantsStk500v1.CRC_EOP};
@@ -1234,7 +1255,7 @@ public class STK500v1 {
 	 */
 	private boolean uploadFile() {
 		if(!chipEraseUniversal()) {
-			logger.logcat("STKv1 constructor: Chip not erased!", "w");
+			logger.logcat("uploadFile: Chip not erased!", "w");
 			return false;
 		}
 		
