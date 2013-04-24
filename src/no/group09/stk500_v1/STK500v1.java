@@ -61,6 +61,12 @@ public class STK500v1 {
 		long endTime;
 		boolean entered;
 		logger.logcat("programUsingOptiboot: Initializing programmer", "v");
+		
+		// Reset arduino
+		if(!softReset()) {
+			logger.logcat("programUsingOptiboot: Arduino didn't restart!", "w");
+		}
+		
 		//get sync and set parameters
 		if (!getSynchronization()) {
 			stopReadWrapper();
@@ -89,7 +95,7 @@ public class STK500v1 {
 		startTime = System.currentTimeMillis();
 		for (int i = 0; i < 10; i++) {
 			logger.logcat("programUsingOptiboot: Number of tries: " + i, "v");
-
+			
 			entered = enterProgramMode();
 			endTime = System.currentTimeMillis();
 
@@ -121,18 +127,12 @@ public class STK500v1 {
 				//tryToRead();
 
 				if(hexParser.getChecksumStatus()) {
-//					try {
-//						Thread.sleep(9);
-//					} catch (InterruptedException e) {
-//					}
-
 					logger.logcat("programUsingOptiboot: Starting to write and read.", "v");
 					
 					//Upload
 					uploadFile();
 					
 					//Check uploaded data
-					//TODO: Don't leave it hard coded
 					readWrittenBytes(numberOfBytes);
 				}
 				else {
@@ -155,6 +155,35 @@ public class STK500v1 {
 				break;
 			}
 		}
+	}
+	
+	/**
+	 * Reset arduino. This requires the ComputerSerial library on the arduino.
+	 * @return true if arduino restarts.
+	 */
+	private boolean softReset() {
+		int intInput = 0;
+		
+		try {
+			output.write((byte)0xff);
+			intInput = read(TimeoutValues.READ);
+			logger.logcat("softReset: input: " + intInput, "d");
+			
+		} catch (TimeoutException e) {
+			logger.logcat("softReset: Reset timed out.", "w");
+			return false;
+		} catch (IOException e) {
+			logger.logcat("softReset: Could not write to arduino.", "w");
+			return false;
+		}	
+		
+		if((byte)intInput == (byte)0xf4) {
+			logger.logcat("softReset: Reset arduino OK!", "w");
+			return true;
+		}
+		logger.logcat("softReset: Could not set arduino in reset mode.", "w");
+		return false;
+		
 	}
 
 	/**
@@ -292,37 +321,6 @@ public class STK500v1 {
 			
 			logger.logcat("uploadZeroes: wrote " + wordsWritten + " words.", "i");
 			
-		}
-	}
-
-	/**
-	 * Temporary method to try reading from the Arduino
-	 */
-	private void tryToRead() {
-		boolean loadOk = false;
-		boolean readOk = false;
-		byte[] readPage = null;
-		
-		for (int j = 0; j < 10; j++) {
-			if(loadAddress(0)) {
-				loadOk = true;
-				
-				readPage = readPage((byte)0,(byte)0,true);
-				if(readPage!=null) {
-					readOk = true;
-					logger.logcat("STKv1 constructor: readPage not null: "
-							+ Hex.bytesToHex(readPage), "d");
-					break;
-				}
-			}
-		}
-		
-		logger.logcat("STKv1 constructor: Loading: " + loadOk + "," +
-				"Reading: "+ readOk, "v");
-		
-		if(readOk) {
-			logger.logcat("STKv1 constructor: Read page result: " +
-					Arrays.toString(readPage), "v");
 		}
 	}
 
@@ -532,9 +530,7 @@ public class STK500v1 {
 	 * @return true if successful.
 	 */
 	private boolean chipEraseUniversal() {
-		//avrdude: Send: V [56] . [ac] . [80] . [00] . [00]   [20] 
 		byte[] command = new byte[6];
-//		{ConstantsStk500v1.STK_UNIVERSAL, ConstantsStk500v1.CRC_EOP};
 		
 		command[0] = ConstantsStk500v1.STK_UNIVERSAL;
 		command[1] = (byte)172; 
@@ -552,8 +548,6 @@ public class STK500v1 {
 			logger.logcat("chipEraseUniversal: Communication problem on chip erase.", "v");
 			return false;
 		}
-
-		
 
 		//read start command + n data bytes + end command
 		byte[] in = new byte[3];

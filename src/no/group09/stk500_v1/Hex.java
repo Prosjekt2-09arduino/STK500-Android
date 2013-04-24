@@ -75,7 +75,7 @@ public class Hex {
 	public boolean checkBytesOnLine(int line, byte[] data) {
 //		logger.logcat("splitHex: Input: " + bytesToHex(data), "d");
 		
-		//Return false if the line does not excist
+		//Return false if the line does not exist
 		if(line > this.line) {
 			return false;
 		}
@@ -83,7 +83,6 @@ public class Hex {
 		else if(data.length == 0 || data == null) {
 			return true;
 		}
-		
 		
 		//Remember to ignore size, address x 2, record and checksum,
 		//total 6 bytes
