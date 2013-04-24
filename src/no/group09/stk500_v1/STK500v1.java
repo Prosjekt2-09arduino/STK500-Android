@@ -729,8 +729,9 @@ public class STK500v1 {
 	 * 
 	 * @param bytes_high most significant byte of the address
 	 * @param bytes_low least significant byte of the address
-	 * @param writeFlash boolean indicating if it should be written to flash memory
-	 * or EEPROM. True = flash. False = EEPROM
+	 * @param writeFlash boolean indicating if it should be written to flash
+	 * memory or EEPROM. True = flash. False = EEPROM. Writing to EEPROM is not
+	 * supported by optiboot
 	 * @param data byte array of data
 	 * 
 	 * @return true if response is STK_INSYNC and STK_OK, false if not.
@@ -742,20 +743,20 @@ public class STK500v1 {
 
 		programPage[0] = ConstantsStk500v1.STK_PROG_PAGE;
 		
+		// Write flash
 		if (writeFlash) {
 			memtype = (byte)'F';
 			programPage[1] = bytes_high;
 			programPage[2] = bytes_low;
 		}
-		//TODO: Ignore this. Optiboot is ignoring the feature.
+		// Write EEPROM
+		// This is not implemented in optiboot
 		else {
 			memtype = (byte)'E';
 			programPage[1] = bytes_high;
 			programPage[2] = bytes_low;
 		}
-
 		programPage[3] = memtype;
-
 
 		//Put all the data together with the rest of the command
 		for (int i = 0; i < data.length; i++) {
@@ -768,7 +769,8 @@ public class STK500v1 {
 		logger.logcat("programPage: Writing bytes: " + Hex.bytesToHex(programPage), "d");
 		logger.logcat("programPage: Data array: " + Hex.bytesToHex(data), "v");
 		logger.logcat("programPage: programPage array, length: " + programPage.length, "v");
-
+		
+		// Send bytes
 		try {
 			output.write(programPage);
 		} catch (IOException e) {
@@ -777,11 +779,6 @@ public class STK500v1 {
 			return false;
 		}
 		
-		//Sleep
-//		try {
-//			Thread.sleep(5);
-//		} catch (InterruptedException e) {
-//		}
 		return checkInput();
 	}
 	
@@ -817,7 +814,7 @@ public class STK500v1 {
 	 * 
 	 * @param bytes_high most significant byte of block size
 	 * @param bytes_low least significant byte of block size
-	 * @param writeFlash boolean indicating if it should be written to flash memory
+	 * @param writeFlash boolean indicating if it should read flash memory
 	 * or EEPROM. True = flash. False = EEPROM 
 	 * 
 	 * @return an byte array with the response from the selected device on the format
@@ -832,6 +829,7 @@ public class STK500v1 {
 
 		readCommand[0] = ConstantsStk500v1.STK_READ_PAGE;
 		
+		// Read flash
 		if (writeFlash) {
 			memtype = (byte)'F';
 			readCommand[1] = bytes_high;
@@ -844,13 +842,13 @@ public class STK500v1 {
 			readCommand[1] = bytes_high;
 			readCommand[2] = bytes_low;
 		}
-		
 		readCommand[3] = memtype;
 		readCommand[4] = ConstantsStk500v1.CRC_EOP;
 
 		logger.logcat("readPage: Sending bytes: " + 
 				Hex.bytesToHex(readCommand), "d");
-
+		
+		// Send bytes
 		try {
 			output.write(readCommand);
 		} catch (IOException e) {
@@ -871,6 +869,7 @@ public class STK500v1 {
 			for (int i = 0; i < in.length+2; i++) {
 				numberOfBytes = read(TimeoutValues.READ);
 				
+				// First byte
 				if(i==0) {
 					if(numberOfBytes != ConstantsStk500v1.STK_INSYNC) {
 						logger.logcat("readPage: STK_INSYNC failed on first byte, " +
@@ -882,6 +881,7 @@ public class STK500v1 {
 						continue;
 					}
 				}
+				// Last byte
 				else if(i==in.length+1) {
 					if(numberOfBytes != ConstantsStk500v1.STK_OK) {
 						logger.logcat("readPage: STK_OK failed on last byte, " + i +
@@ -896,7 +896,6 @@ public class STK500v1 {
 				else {
 					in[i-1] = (byte)numberOfBytes;
 				}
-//				logger.logcat("readPage: Read: " + oneByteToHex(in[i]), "d");
 			}
 			//Something went wrong
 			logger.logcat("readPage: Something went wrong...", "w");
@@ -905,21 +904,6 @@ public class STK500v1 {
 			logger.logcat("readPage: Unable to read", "w");
 			return null;
 		}
-		
-//		logger.logcat("readPage: Read bytes: " + bytesToHex(buffer), "d");
-//
-//		if (numberOfBytes > 2 && buffer[0] == ConstantsStk500v1.STK_INSYNC &&
-//				buffer[numberOfBytes-1] == ConstantsStk500v1.STK_OK) {
-//			return buffer;
-//		}
-//
-//		else if (numberOfBytes == 1 && buffer[0] == ConstantsStk500v1.STK_NOSYNC) {
-//			return null;
-//		}
-
-//		logger.logcat("readPage: readPage didn't receive anything!", "e");
-		//If the method does not return in one of the above, something went wrong
-//		return null;
 	}
 	
 	
@@ -960,8 +944,6 @@ public class STK500v1 {
 			//Find how many bytes to load
 			dataSize = 0;
 			for(int y = 0; y < bytesToLoad/16; y++) {
-				//TODO: check if x+y (line) is out of bounds
-				
 				//Out of bounds, stop here
 				if(hexParser.getDataSizeOnLine(x+y) == -1) {
 					break;
@@ -1253,11 +1235,12 @@ public class STK500v1 {
 	 * @param bytesToLoad 
 	 */
 	private boolean uploadFile(boolean checkWrittenData, int bytesToLoad) {
-		//TODO: Make this dynamically 
-		
 		// Calculate progress
 		progress = 0;
 		logger.logcat("progress: " + getProgress() + " %", "d");
+		
+		// Check input
+		if(!checkReadWriteBytes(bytesToLoad)) return false;
 		
 		// Erase chip before programming
 		if(!chipEraseUniversal()) {
@@ -1285,7 +1268,7 @@ public class STK500v1 {
 			
 			//How many lines from hex file should be combine.
 			//Always divide on 16 to get lines
-			int bytesOnLine = 128/16;
+			int bytesOnLine = bytesToLoad/16;
 			
 			byte[][] nextLine = new byte[bytesOnLine][];
 			
