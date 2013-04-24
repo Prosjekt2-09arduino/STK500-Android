@@ -376,6 +376,9 @@ public class MainActivity extends Activity {
 						}
 						
 						STK500v1 p = new STK500v1(outStream, inputStream, log, binaryFile);
+						
+						p.programUsingOptiboot(true, 128);
+						
 						log.logcat("initializeExecuteButton: Protocol code stopped", "d");
 						log.printToConsole("Protocol code stopped");
 						handler.sendEmptyMessage(0);

@@ -43,8 +43,6 @@ public class STK500v1 {
 		logger.logcat("STKv1 constructor: ReadWrapper should be started now", "v");
 		//readWrapper.setStrictPolicy(false);
 
-		programUsingOptiboot(128);
-
 		//shut down readWrapper
 		readWrapper.terminate();
 	}
@@ -52,19 +50,24 @@ public class STK500v1 {
 	/**
 	 * Start the programming process. This includes initializing communication
 	 * with the bootloader.
-	 * @param numberOfBytes Number of bytes to write and read at once. Recommended
-	 * value is 128.
+	 * @param checkWrittenData Verify data after the write process. Recommended
+	 * value is true, but to speed things up this can be skipped.
+	 * @param numberOfBytes Number of bytes to write and read at once. Valid
+	 * input is 16, 32, 64, 128 and 256. Recommended value is 128.
 	 */
-	private void programUsingOptiboot(int numberOfBytes) {
+	public void programUsingOptiboot(boolean checkWrittenData, int numberOfBytes) {
 
 		long startTime;
 		long endTime;
 		boolean entered;
 		logger.logcat("programUsingOptiboot: Initializing programmer", "v");
 		
-		// Reset arduino
+		// Restart the arduino.
+		// This requires the ComputerSerial library on arduino.
 		if(!softReset()) {
-			logger.logcat("programUsingOptiboot: Arduino didn't restart!", "w");
+			logger.logcat("programUsingOptiboot: Arduino didn't restart!" +
+					"Canceling...", "w");
+			return;
 		}
 		
 		//get sync and set parameters
@@ -73,9 +76,6 @@ public class STK500v1 {
 			return;
 			//give up
 		}
-		
-		//TODO: Not used by Optiboot
-		//setParameters();
 
 		startTime = System.currentTimeMillis();
 		//try to get programmer version
@@ -88,10 +88,12 @@ public class STK500v1 {
 		logger.logcat("programUsingOptiboot: " + version, "i");
 		logger.printToConsole(version);
 		
+		// Check version
 		if (!version.equals("Arduino")) {
 			stopReadWrapper();
 			return;
 		};
+		
 		startTime = System.currentTimeMillis();
 		for (int i = 0; i < 10; i++) {
 			logger.logcat("programUsingOptiboot: Number of tries: " + i, "v");
@@ -120,25 +122,26 @@ public class STK500v1 {
 						break;
 					}
 				}
-
 				logger.logcat("programUsingOptiboot: Sync fails: " + syncFails, "v");
-
-				//TODO Make tryToRead work
-				//tryToRead();
-
+				
+				// Check hex file
 				if(hexParser.getChecksumStatus()) {
 					logger.logcat("programUsingOptiboot: Starting to write and read.", "v");
 					
-					//Upload
-					uploadFile();
+					// Erase chip before starting to program
+					if(!chipEraseUniversal()) {
+						logger.logcat("uploadFile: Chip not erased!", "w");
+						break;
+					}
 					
-					//Check uploaded data
-					readWrittenBytes(numberOfBytes);
+					//Upload and verify uploaded bytes.
+					uploadFile(checkWrittenData, numberOfBytes);
 				}
 				else {
-					logger.logcat("programUsingOptiboot: Hex file not OK!", "w");
+					logger.logcat("programUsingOptiboot: Hex file not OK! Canceling...", "w");
 				}
 
+				// Leave programming mode
 				logger.logcat("programUsingOptiboot: Trying to leave programming mode...", "i");
 				for (int j = 0; j < 3; j++) {
 					if(leaveProgramMode()) {
@@ -502,7 +505,8 @@ public class STK500v1 {
 	}
 
 	/**
-	 * Erase the device to prepare for programming
+	 * Erase the device to prepare for programming.
+	 * If using the optiboot bootloader, use chipEraseUniversal
 	 * @return true if successful.
 	 */
 	private boolean chipErase() {
@@ -834,7 +838,8 @@ public class STK500v1 {
 			readCommand[2] = bytes_low;
 		}
 		else {
-			//TODO: Read EEPROM is not implemented in optiboot. Remove?
+			// Read EEPROM
+			// This is not implemented in optiboot
 			memtype = (byte)'E';
 			readCommand[1] = bytes_high;
 			readCommand[2] = bytes_low;
@@ -925,17 +930,12 @@ public class STK500v1 {
 	 * @return true if read data is the same hex file
 	 */
 	private boolean readWrittenBytes(int bytesToLoad) {
+		//Calculate progress
 		progress = 50;
 		logger.logcat("progress: " + getProgress() + " %", "d");
 		
-		if(bytesToLoad > 0 && bytesToLoad % 16 != 0) {
-			logger.logcat("readWrittenBytes: Must be 16^n and not 0, was " + bytesToLoad, "w");
-			return false;
-		}
-		else if(bytesToLoad > 256) {
-			logger.logcat("readWrittenBytes: Too big input, max 256, was " + bytesToLoad, "w");
-			return false;
-		}
+		// Check input
+		if(!checkReadWriteBytes(bytesToLoad)) return false;
 		
 		//Parsing through the hex file to compare output
 		int x = 0;
@@ -1248,11 +1248,18 @@ public class STK500v1 {
 	/**
 	 * Used to upload files to the flash memory. This method sends the content
 	 * of the binary byte array in pairs of two to the flash memory.
+	 * @param chipErase Use the standard chipErase method. False to use chipEraseUniversal
+	 * @param checkWrittenData Verify written bytes
+	 * @param bytesToLoad 
 	 */
-	private boolean uploadFile() {
+	private boolean uploadFile(boolean checkWrittenData, int bytesToLoad) {
+		//TODO: Make this dynamically 
+		
+		// Calculate progress
 		progress = 0;
 		logger.logcat("progress: " + getProgress() + " %", "d");
 		
+		// Erase chip before programming
 		if(!chipEraseUniversal()) {
 			logger.logcat("uploadFile: Chip not erased!", "w");
 			return false;
@@ -1333,7 +1340,10 @@ public class STK500v1 {
 			if (programPageSuccess) {
 				hexPosition+=bytesOnLine;
 				
-				progress = ((double)hexPosition/(double)hexLength) * 50;
+				// Calculate progress
+				progress = (double)hexPosition/(double)hexLength;
+				if(checkWrittenData) progress *= 50;
+				else progress *= 100;
 				logger.logcat("progress: " + getProgress() + " %", "d");
 				
 				continue;
@@ -1357,6 +1367,12 @@ public class STK500v1 {
 		}
 		logger.logcat("uploadFile: End of file. "+
 				"Upload finished with success.", "d");
+		
+		// Read bytes from arduino to verify written data
+		if(checkWrittenData) {
+			return readWrittenBytes(bytesToLoad);
+		}
+		
 		return true;
 	}
 
@@ -1403,9 +1419,6 @@ public class STK500v1 {
 	 * @return
 	 */
 	private static int unPackTwoBytes(byte high, byte low) {
-
-		//TODO: Add call to this method/remove
-
 		int out = (decodeByte(high) << 8) | (decodeByte(low));
 		return out;
 	}
@@ -1511,5 +1524,17 @@ public class STK500v1 {
 	 */
 	public int getProgress() {
 		return (int)progress;
+	}
+	
+	private boolean checkReadWriteBytes(int bytesToLoad) {
+		if(bytesToLoad > 0 && bytesToLoad % 16 != 0) {
+			logger.logcat("readWrittenBytes: Must be 16^n and not 0, was " + bytesToLoad, "w");
+			return false;
+		}
+		else if(bytesToLoad > 256) {
+			logger.logcat("readWrittenBytes: Too big input, max 256, was " + bytesToLoad, "w");
+			return false;
+		}
+		return true;
 	}
 }
