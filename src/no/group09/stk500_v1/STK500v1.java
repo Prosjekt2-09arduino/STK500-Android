@@ -33,16 +33,16 @@ public class STK500v1 {
 		readWrapperThread = new Thread(readWrapper);
 		
 		readWrapperThread.start();
-		while (!readWrapper.checkIfStarted()) {
-//			try {
-//				Thread.sleep(100);
-//			} catch (InterruptedException e) {
-//				//nothing needs doing
-//			}
-		}
+		while (!readWrapper.checkIfStarted());
+		
 		logger.logcat("STKv1 constructor: ReadWrapper should be started now", "v");
 		//readWrapper.setStrictPolicy(false);
-
+	}
+	
+	/**
+	 * Run this when you are finished. This will terminate the readWrapper.
+	 */
+	public void terminateWrapper() {
 		//shut down readWrapper
 		readWrapper.terminate();
 	}
@@ -50,12 +50,16 @@ public class STK500v1 {
 	/**
 	 * Start the programming process. This includes initializing communication
 	 * with the bootloader.
+	 * 
 	 * @param checkWrittenData Verify data after the write process. Recommended
 	 * value is true, but to speed things up this can be skipped.
 	 * @param numberOfBytes Number of bytes to write and read at once. Valid
 	 * input is 16, 32, 64, 128 and 256. Recommended value is 128.
+	 * 
+	 * @return True if the arduino was programmed. If returning false it is
+	 * recommended to run this again or verify written data by using readWrittenBytes 
 	 */
-	public void programUsingOptiboot(boolean checkWrittenData, int numberOfBytes) {
+	public boolean programUsingOptiboot(boolean checkWrittenData, int numberOfBytes) {
 
 		long startTime;
 		long endTime;
@@ -66,14 +70,13 @@ public class STK500v1 {
 		// This requires the ComputerSerial library on arduino.
 		if(!softReset()) {
 			logger.logcat("programUsingOptiboot: Arduino didn't restart!" +
-					"Canceling...", "w");
-			return;
+					" Trying to continue without restart.", "w");
 		}
 		
 		//get sync and set parameters
 		if (!getSynchronization()) {
 			stopReadWrapper();
-			return;
+			return false;
 			//give up
 		}
 
@@ -91,9 +94,10 @@ public class STK500v1 {
 		// Check version
 		if (!version.equals("Arduino")) {
 			stopReadWrapper();
-			return;
+			return false;
 		};
 		
+		// Enter programming mode
 		startTime = System.currentTimeMillis();
 		for (int i = 0; i < 10; i++) {
 			logger.logcat("programUsingOptiboot: Number of tries: " + i, "v");
@@ -147,17 +151,18 @@ public class STK500v1 {
 					if(leaveProgramMode()) {
 						logger.logcat("programUsingOptiboot: The arduino has now " +
 								"left programming mode.", "i");
-						break;
+						return true;
 					}
 					if(j>2) {
 						logger.logcat("programUsingOptiboot: Giving up on leaving " +
 								"programming mode.", "i");
-						break;
+						return false;
 					}
 				}
-				break;
 			}
 		}
+		// Could not enter programming mode!
+		return false;
 	}
 	
 	/**
@@ -169,7 +174,7 @@ public class STK500v1 {
 		
 		try {
 			output.write((byte)0xff);
-			intInput = read(TimeoutValues.READ);
+			intInput = read(TimeoutValues.RESTART);
 			logger.logcat("softReset: input: " + intInput, "d");
 			
 		} catch (TimeoutException e) {
@@ -402,13 +407,13 @@ public class STK500v1 {
 	 * Command to try to regain synchronization when sync is lost. Returns when
 	 * sync is regained, or it exceeds 10 tries.
 	 * 
-	 * @return true if sync is regained, false if number of tries exceeds 10
+	 * @return true if sync is regained, false if number of tries exceeds 5
 	 */
 	private boolean getSynchronization() {
 		byte[] getSyncCommand = {ConstantsStk500v1.STK_GET_SYNC, ConstantsStk500v1.CRC_EOP};
 		int tries = 0;
 
-		while (tries < 10) {
+		while (tries < 5) {
 			tries++;
 
 			try {
@@ -906,16 +911,29 @@ public class STK500v1 {
 		}
 	}
 	
-	
 	/**
 	 * Check the data in hex file and compare it with read bytes on Arduino
 	 * 
 	 * @param bytesToLoad Number of bytes to read, must be 16^n value
 	 * @return true if read data is the same hex file
 	 */
-	private boolean readWrittenBytes(int bytesToLoad) {
+	public boolean readWrittenBytes() {
+		return readWrittenBytes(128, false);
+	}
+	
+	/**
+	 * Check the data in hex file and compare it with read bytes on Arduino
+	 * 
+	 * @param bytesToLoad Number of bytes to read, must be 16^n value
+	 * @param progressStart If progress count should start on 0
+	 * 
+	 * @return true if read data is the same hex file
+	 */
+	private boolean readWrittenBytes(int bytesToLoad, boolean progressStart) {
 		//Calculate progress
-		progress = 50;
+		if(progressStart) progress = 0;
+		else progress = 50;
+		
 		logger.logcat("progress: " + getProgress() + " %", "d");
 		
 		// Check input
@@ -966,7 +984,9 @@ public class STK500v1 {
 				if(hexParser.checkBytesOnLine(x-readLines, readArray)) {
 					logger.logcat("readWrittenBytes: Verified line " + x + "!", "d");
 					
-					progress = (double)x / (double)hexParser.getLines() * 50 + 50;
+					// Calculate progress
+					if(progressStart) progress = (double)x / (double)hexParser.getLines() * 100;
+					else progress = (double)x / (double)hexParser.getLines() * 50 + 50;
 					logger.logcat("progress: " + getProgress() + " %", "d");
 				}
 				else {
@@ -1353,7 +1373,7 @@ public class STK500v1 {
 		
 		// Read bytes from arduino to verify written data
 		if(checkWrittenData) {
-			return readWrittenBytes(bytesToLoad);
+			return readWrittenBytes(bytesToLoad, false);
 		}
 		
 		return true;
@@ -1483,6 +1503,7 @@ public class STK500v1 {
 		DEFAULT(5000),
 		CONNECT(3000),
 		READ(5000),
+		RESTART(100),
 		WRITE(1000);
 
 		private final long timeout;
