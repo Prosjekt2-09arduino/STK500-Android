@@ -239,7 +239,7 @@ public class MainActivity extends Activity {
 						p.programUsingOptiboot(true, 128);
 						
 						// Terminate readWrapper
-						p.terminateWrapper();
+						p.stopReadWrapper();
 						
 						log.logcat("initializeExecuteButton: Protocol code stopped", "d");
 						log.printToConsole("Protocol code stopped");

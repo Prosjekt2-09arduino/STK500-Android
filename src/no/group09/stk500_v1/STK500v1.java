@@ -3,7 +3,6 @@ package no.group09.stk500_v1;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Arrays;
 import java.util.concurrent.TimeoutException;
 
 public class STK500v1 {
@@ -40,14 +39,6 @@ public class STK500v1 {
 	}
 	
 	/**
-	 * Run this when you are finished. This will terminate the readWrapper.
-	 */
-	public void terminateWrapper() {
-		//shut down readWrapper
-		readWrapper.terminate();
-	}
-	
-	/**
 	 * Start the programming process. This includes initializing communication
 	 * with the bootloader.
 	 * 
@@ -80,14 +71,9 @@ public class STK500v1 {
 			//give up
 		}
 
-		startTime = System.currentTimeMillis();
 		//try to get programmer version
 		String version = checkIfStarterKitPresent();
-		endTime = System.currentTimeMillis();
-
-		logger.logcat("programUsingOptiboot: checkIfStarterKitPresent took: " + 
-				(endTime-startTime) + " ms", "v");
-
+		
 		logger.logcat("programUsingOptiboot: " + version, "i");
 		logger.printToConsole(version);
 		
@@ -120,7 +106,7 @@ public class STK500v1 {
 						syncFails++;
 					}
 					else {
-						//Sync ok
+						//Sync OK
 						logger.logcat("programUsingOptiboot: Sync OK after " +
 								(System.currentTimeMillis()-now) + " ms.", "v");
 						break;
@@ -173,6 +159,7 @@ public class STK500v1 {
 		int intInput = 0;
 		
 		try {
+			// Write 0xff to arduino to restart
 			output.write((byte)0xff);
 			intInput = read(TimeoutValues.RESTART);
 			logger.logcat("softReset: input: " + intInput, "d");
@@ -185,8 +172,9 @@ public class STK500v1 {
 			return false;
 		}	
 		
+		// If the arduino sends 0xf4 back, it restarted
 		if((byte)intInput == (byte)0xf4) {
-			logger.logcat("softReset: Reset arduino OK!", "w");
+			logger.logcat("softReset: Arduino restarted!", "d");
 			return true;
 		}
 		logger.logcat("softReset: Could not set arduino in reset mode.", "w");
@@ -197,7 +185,7 @@ public class STK500v1 {
 	/**
 	 * Attempts to stop the read wrapper
 	 */
-	private void stopReadWrapper() {
+	public void stopReadWrapper() {
 		readWrapper.terminate();
 		while(readWrapperThread.isAlive()) {
 //			try {
@@ -991,22 +979,16 @@ public class STK500v1 {
 				}
 				else {
 					logger.logcat("readWrittenBytes: Line " + x + " NOT verified!", "w");
-					//TODO: upload file again
+					//TODO: Consider to upload file again.
 					return false;
 				}
 			}
 			//Try again if readPage fails
 			else {
-				//TODO: Read again
+				//TODO: Consider to read again. Can be done by running this method again
 				logger.logcat("readWrittenBytes: Failed to read line " + (x-7) + " - " + x, "w");
 				return false;
 			}
-			
-//			//Need to sleep to not get exceptions
-//			try {
-//				Thread.sleep(5);
-//			} catch (InterruptedException e) {
-//			}
 		}
 		return true;
 	}
