@@ -15,12 +15,13 @@ public class STK500v1 {
 	private int syncStack = 0;
 	private int programPageTries = 0;
 	private double progress = 0;
+	private ProtocolState state;
 
 	/** Used to interact with the binary file */
 	private Hex hexParser;
 
 	public STK500v1 (OutputStream output, InputStream input, Logger log, byte[] binary) {
-
+		state = ProtocolState.INITIALIZING;
 		this.hexParser = new Hex(binary, log);
 
 		this.output = output;
@@ -35,6 +36,7 @@ public class STK500v1 {
 		while (!readWrapper.checkIfStarted());
 		
 		logger.logcat("STKv1 constructor: ReadWrapper should be started now", "v");
+		state = ProtocolState.READY;
 		//readWrapper.setStrictPolicy(false);
 	}
 	
@@ -225,7 +227,11 @@ public class STK500v1 {
 		if (readWrapper == null || readWrapperThread == null) {
 			return false;
 		}
-		if (readWrapperThread.isAlive()) {
+		if (!readWrapperThread.isAlive()) {
+			return false;
+		}
+		if (!readWrapper.checkIfStarted()) {
+			logger.logcat("Wrapper thread running,  but not yet initialized fully", "i");
 			return false;
 		}
 		return true;
@@ -1556,5 +1562,19 @@ public class STK500v1 {
 			return false;
 		}
 		return true;
+	}
+	
+	/**States for the service to check. Can also improve flow control in protocol**/
+	public enum ProtocolState {
+		INITIALIZING,
+		READY,
+		CONNECTING,
+		WRITING,
+		READING,
+		FINISHED,
+		ERROR_PARSE_HEX,
+		ERROR_CONNECT,
+		ERROR_WRITE,
+		ERROR_READ
 	}
 }
