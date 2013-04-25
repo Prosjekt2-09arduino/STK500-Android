@@ -197,6 +197,40 @@ public class STK500v1 {
 		return;
 	}
 	
+	/**
+	 * Starts the wrapper if it isn't running already.
+	 * @return true if it could be started.
+	 */
+	public synchronized boolean recreateWrapper() {
+		if (isReadWrapperRunning()) {
+			logger.logcat("recreateWrapper: The wrapper is already running and cannot " +
+					"be started.","d");
+			return false;
+		}
+		readWrapper = new ReadWrapper(input, logger);
+		readWrapperThread = new Thread(readWrapper);
+		
+		readWrapperThread.start();
+		while (!readWrapper.checkIfStarted());
+		
+		logger.logcat("recreateWrapper: ReadWrapper should be started now", "v");
+		return true;
+	}
+	
+	/**
+	 * Check if the read wrapper is running
+	 * @return true if it is
+	 */
+	public synchronized boolean isReadWrapperRunning() {
+		if (readWrapper == null || readWrapperThread == null) {
+			return false;
+		}
+		if (readWrapperThread.isAlive()) {
+			return false;
+		}
+		return true;
+	}
+	
 	//TODO: This is not used by optiboot!
 //	private boolean sendExtendedParameters() {
 //		//(byte) 45,  (byte) 05, (byte) 04, (byte) d7, (byte) c2, (byte) 00, (byte) 20
@@ -1505,10 +1539,10 @@ public class STK500v1 {
 	}
 	
 	/**
-	 * Return progress as integer, 0 - 100.
+	 * Return progress of programming as integer, 0 - 100.
 	 * @return progress
 	 */
-	public int getProgress() {
+	public synchronized int getProgress() {
 		return (int)progress;
 	}
 	
