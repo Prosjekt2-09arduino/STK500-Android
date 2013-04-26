@@ -13,11 +13,13 @@ public class Hex {
 	
 	public Hex(byte[] bin, Logger log) {
 		this.logger = log;
+		this.subHex = bin;
 		
 		// count lines and create an array
-		state = splitHex(bin);
+		state = splitHex();
 		
 		logger.logcat("Hex file status: " + state, "v");
+		logger.logcat("Hex file has " + getLines() + " lines", "v");
 	}
 	
 	/**
@@ -28,6 +30,18 @@ public class Hex {
 	public byte[] getHexLine(int line)
 	{
 		return formatHexLine(line);
+	}
+	
+	/**
+	 * Return the load address for this line
+	 * @param line The line number to check
+	 * @return The load address, high byte, low byte
+	 */
+	public byte[] getLoadAddress(int line) {
+		byte[] tempArray = new byte[2];
+		tempArray[0] = binList.get(line).get(1);
+		tempArray[1] = binList.get(line).get(2);
+		return tempArray;
 	}
 	
 	/**
@@ -51,11 +65,12 @@ public class Hex {
 	 */
 	public int getDataSizeOnLine(int line)
 	{
-		try {
+		if(line<this.line) {
+			logger.logcat("splitHex: Line " + line +
+					" has " + (binList.get(line).get(0) & 0xFF) + " bytes","d");
 			return binList.get(line).get(0) & 0xFF;
-		} catch (IndexOutOfBoundsException e) {
-			return -1;
 		}
+		return -1;
 	}
 	
 	/**
@@ -124,13 +139,20 @@ public class Hex {
 	 * The record is not saved, only used to check what kind of data this is.
 	 * This will start with line 0 and parse through the whole file.
 	 * 
-	 * @param subHex Array with bytes
-	 * 
 	 * @return True if the hex file is correct.
 	 */
-	private boolean splitHex(byte[] subHex) {
-		this.subHex = subHex;
-		return splitHex(0);
+	private boolean splitHex() {
+		logger.logcat("splitHex: Number of bytes in array " + subHex.length, "d");
+		int x = 0;
+		while(x < subHex.length) {
+			x = splitHex(x);
+			
+//			logger.logcat("splitHex: X = " + x, "d");
+			
+			if(x < 0) return false;
+		}
+		
+		return true;
 	}
 	
 	/**
@@ -144,14 +166,14 @@ public class Hex {
 	 * 
 	 * @return True if the hex file is correct.
 	 */
-	private boolean splitHex(int startOnDataByte) {
+	private int splitHex(int startOnDataByte) {
 		int dataLength = 0;
 		
 		//The minimum length of a line is 6, including the start byte ':'
 		if((subHex.length + startOnDataByte)<6) {
 			logger.logcat("splitHex(): The minimum size of a line is 6, this line was " 
 					+ subHex.length, "w");
-			return false;
+			return -1;
 		}
 		
 		//save length
@@ -160,29 +182,29 @@ public class Hex {
 		//The line must start with ':'
 		if(subHex[startOnDataByte] != 58) {
 			logger.logcat("splitHex(): Line not starting with ':' !", "w");
-			return false;
+			return -1;
 		}
 		//If record type is 0x01 (file end) and data size > 0, return false
 		else if(subHex[startOnDataByte + 4]==1 && dataLength>0) {
 			logger.logcat("splitHex(): Contains data, but are told to stop!", "w");
-			return false;
+			return -1;
 		}
 		//If record type is 0x01 (file end) and it exist more bytes to read, return false
 		else if(subHex[startOnDataByte + 4]==1 && subHex.length>startOnDataByte + dataLength + 6) {
 			logger.logcat("splitHex(): Contains more lines with data, " +
 					"but are told to stop!", "w");
-			return false;
+			return -1;
 		}
 		//If record type is 0x00 (data record) and data size equals 0, return false
 		else if(subHex[startOnDataByte + 4]==0 && subHex[startOnDataByte + 1]==0) {
 			logger.logcat("splitHex(): Told to send data, but contains no data!", "w");
-			return false;
+			return -1;
 		}
 		else {
 			//add new line to ArrayList
 			line++;
 			
-			logger.logcat("splitHex: creating line " + line, "v");
+//			logger.logcat("splitHex: creating line " + line + " startOnDataByte " + startOnDataByte, "v");
 			
 			binList.add(new ArrayList<Byte>());
 			
@@ -209,23 +231,16 @@ public class Hex {
 			if(checkData(line)) {
 				//End of hex file
 				try {
-					//No more data in hex file
-					if(subHex.length <= startOnDataByte + dataLength + 6) {
-						logger.logcat("splitHex(): End of hex file!", "w");
-						return true;
-					}
-					else {
-						//Sending rest of the array back to splitHex
-						return splitHex(startOnDataByte + dataLength + 6);
-					}
+					// No more data on line
+					return (startOnDataByte + dataLength + 6);
 				} catch (ArrayIndexOutOfBoundsException e) {
 					// Array out of bounds
-					return false;
+					return -1;
 				}
 			}
 			else {
 				logger.logcat("splitHex(): Checksum failed!", "w");
-				return false;
+				return -1;
 			}
 		}
 	}
