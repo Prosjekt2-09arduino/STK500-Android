@@ -5,6 +5,18 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.concurrent.TimeoutException;
 
+/**
+ * The protocol class for STK500v1. The current implementation only works with
+ * the Optiboot bootloader.
+ * Instancing this class parses the hexadecimal file to be programmed, and prepares
+ * the wrapper that handles reading from Android Bluetooth sockets (required due to
+ * lack of interruption or timeout exceptions in the socket and streams).
+ * 
+ * Programming is initiated by running one of the programUsingXXXXX() methods (which is
+ * blocking, so running in another thread is recommended), and progress can be monitored
+ * by using getProtocolState() and getProgress(). The progress only increments during
+ * writing or reading.
+ */
 public class STK500v1 {
 	private OutputStream output;
 	private InputStream input;
