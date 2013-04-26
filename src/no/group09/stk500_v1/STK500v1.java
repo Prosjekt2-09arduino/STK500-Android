@@ -41,6 +41,13 @@ public class STK500v1 {
 	}
 	
 	/**
+	 * Get the state the protocol is in.
+	 */
+	public synchronized ProtocolState getProtocolState() {
+		return state;
+	}
+	
+	/**
 	 * Start the programming process. This includes initializing communication
 	 * with the bootloader.
 	 * 
@@ -1566,15 +1573,34 @@ public class STK500v1 {
 	
 	/**States for the service to check. Can also improve flow control in protocol**/
 	public enum ProtocolState {
+		/**The programmer is parsing the hex file and starting the read wrapper**/
 		INITIALIZING,
+		/**The programmer is ready to start**/
 		READY,
+		/**
+		 * The programmer is connecting and synchronizing with the device.
+		 * This includes getting/setting parameters and other checks.
+		 */
 		CONNECTING,
+		/**
+		 * The programmer is writing to the device. Progress can be checked using
+		 * getProgress()
+		 */
 		WRITING,
+		/**
+		 * The programmer is reading from the device. Progress can be checked using
+		 * getProgress();
+		 */
 		READING,
+		/**The programmer has finished executing.**/
 		FINISHED,
+		/**Fatal error occured parsing the program**/
 		ERROR_PARSE_HEX,
+		/**Communications could not be properly established with the device**/
 		ERROR_CONNECT,
+		/**An error occured while programming the device**/
 		ERROR_WRITE,
+		/**An error occured while verifying the written data**/
 		ERROR_READ
 	}
 }
