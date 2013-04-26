@@ -14,8 +14,8 @@ public class STK500v1 {
 	/**Used to prevent stack overflow**/
 	private int syncStack = 0;
 	private int programPageTries = 0;
-	private double progress = 0;
-	private ProtocolState state;
+	private volatile double progress = 0;
+	private volatile ProtocolState state;
 
 	/** Used to interact with the binary file */
 	private Hex hexParser;
@@ -43,7 +43,7 @@ public class STK500v1 {
 	/**
 	 * Get the state the protocol is in.
 	 */
-	public synchronized ProtocolState getProtocolState() {
+	public ProtocolState getProtocolState() {
 		return state;
 	}
 	
@@ -60,7 +60,7 @@ public class STK500v1 {
 	 * recommended to run this again or verify written data by using readWrittenBytes 
 	 */
 	public boolean programUsingOptiboot(boolean checkWrittenData, int numberOfBytes) {
-
+		state = ProtocolState.CONNECTING;
 		long startTime;
 		long endTime;
 		boolean entered;
@@ -76,6 +76,7 @@ public class STK500v1 {
 		//get sync and set parameters
 		if (!getSynchronization()) {
 			stopReadWrapper();
+			state = ProtocolState.ERROR_CONNECT;
 			return false;
 			//give up
 		}
@@ -89,6 +90,7 @@ public class STK500v1 {
 		// Check version
 		if (!version.equals("Arduino")) {
 			stopReadWrapper();
+			state = ProtocolState.ERROR_CONNECT;
 			return false;
 		};
 		
@@ -137,7 +139,8 @@ public class STK500v1 {
 					uploadFile(checkWrittenData, numberOfBytes);
 				}
 				else {
-					logger.logcat("programUsingOptiboot: Hex file not OK! Canceling...", "w");
+					state = ProtocolState.ERROR_PARSE_HEX;
+					logger.logcat("programUsingOptiboot: Hex file not OK! Cancelling...", "w");
 				}
 
 				// Leave programming mode
@@ -146,17 +149,26 @@ public class STK500v1 {
 					if(leaveProgramMode()) {
 						logger.logcat("programUsingOptiboot: The arduino has now " +
 								"left programming mode.", "i");
+						if (state != ProtocolState.ERROR_READ &&
+								state != ProtocolState.ERROR_WRITE) {
+							state = ProtocolState.FINISHED;
+						}
 						return true;
 					}
 					if(j>2) {
 						logger.logcat("programUsingOptiboot: Giving up on leaving " +
 								"programming mode.", "i");
+						if (state != ProtocolState.ERROR_READ &&
+								state != ProtocolState.ERROR_WRITE) {
+							state = ProtocolState.FINISHED;
+						}
 						return false;
 					}
 				}
 			}
 		}
 		// Could not enter programming mode!
+		state = ProtocolState.ERROR_CONNECT;
 		return false;
 	}
 	
@@ -965,6 +977,7 @@ public class STK500v1 {
 	 * @return true if read data is the same hex file
 	 */
 	private boolean readWrittenBytes(int bytesToLoad, boolean progressStart) {
+		state = ProtocolState.READING;
 		//Calculate progress
 		if(progressStart) progress = 0;
 		else progress = 50;
@@ -1285,6 +1298,8 @@ public class STK500v1 {
 	 */
 	private boolean uploadFile(boolean checkWrittenData, int bytesToLoad) {
 		// Calculate progress
+		state = ProtocolState.WRITING;//TODO: if Check checkReadWriteBytes and chipErase
+		//universal needs state updates after merging
 		progress = 0;
 		logger.logcat("progress: " + getProgress() + " %", "d");
 		
@@ -1312,6 +1327,7 @@ public class STK500v1 {
 			if(programPageTries>3) {
 				logger.logcat("uploadFile: Could not write from line " +
 						hexPosition + " of " + hexLength, "w");
+				state = ProtocolState.ERROR_WRITE;
 				return false;
 			}
 			
@@ -1391,6 +1407,7 @@ public class STK500v1 {
 					}
 					else if(i == 9) {
 						logger.logcat("uploadFile: loadAddress failed!", "w");
+						state = ProtocolState.ERROR_WRITE;
 						return false;
 					}
 				}
@@ -1402,9 +1419,13 @@ public class STK500v1 {
 		
 		// Read bytes from arduino to verify written data
 		if(checkWrittenData) {
-			return readWrittenBytes(bytesToLoad, false);
+			if (readWrittenBytes(bytesToLoad, false)) {
+				return true;
+			} else {
+				state = ProtocolState.ERROR_READ;
+				return false;
+			}
 		}
-		
 		return true;
 	}
 
@@ -1553,9 +1574,11 @@ public class STK500v1 {
 	
 	/**
 	 * Return progress of programming as integer, 0 - 100.
+	 * If verification is enabled, writing goes from 0-50 and reading continues to 100.
+	 * Otherwise, writing uses the entire scale.
 	 * @return progress
 	 */
-	public synchronized int getProgress() {
+	public int getProgress() {
 		return (int)progress;
 	}
 	
