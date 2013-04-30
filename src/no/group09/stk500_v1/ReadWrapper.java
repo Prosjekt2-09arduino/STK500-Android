@@ -107,9 +107,9 @@ public class ReadWrapper implements Runnable {
 	 * @return true if ready
 	 */
 	public synchronized boolean canAcceptWork() {
-		boolean check = (state == State.WAITING || state == State.REQUEST_CANCELLED_RESULT_READY ||
-				(state == State.REQUEST_CANCELLED && !strictPolicy));
-		
+//		boolean check = (state == State.WAITING || state == State.REQUEST_CANCELLED_RESULT_READY ||
+//				(state == State.REQUEST_CANCELLED && !strictPolicy));
+		boolean check = (state == State.WAITING || state == State.REQUEST_CANCELLED_RESULT_READY);
 		if(!check) {
 			logger.logcat("canAcceptWork: Work not accepted, state: " + 
 					state.toString(), "d");
