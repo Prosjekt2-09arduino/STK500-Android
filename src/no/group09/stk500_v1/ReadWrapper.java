@@ -288,6 +288,10 @@ public class ReadWrapper implements Runnable {
 			case WAITING : {
 				if (oldState != state) {
 					logger.logcat("run: Wrapper idling...", "v");
+					if (!reader.isReady()) {
+						logger.logcat("ReadWrapper run: Wrapper switched to waiting " + 
+								"state, but reader is busy!", "w");
+					}
 					oldState = state;
 				}
 				
@@ -311,6 +315,9 @@ public class ReadWrapper implements Runnable {
 				//however, the if block will be skipped
 				if (oldState == State.WAITING) {
 					resultsSet = false;
+					if (!reader.isReady()) {
+						logger.logcat("ReadWrapper run: Wrapper asked to read but reader busy!", "w");
+					}
 					logger.logcat("run: Wrapper starting read action", "v");
 					//read to buffer or just a single byte
 					if (buffer == null) {
@@ -658,7 +665,7 @@ public class ReadWrapper implements Runnable {
 					//own monitor before waiting:
 					synchronized(this) {
 						try {
-							wait(10);
+							wait();
 						} catch (InterruptedException e) {
 							//only log message if reader is supposed to read
 							if (!ready && !resultReady) {

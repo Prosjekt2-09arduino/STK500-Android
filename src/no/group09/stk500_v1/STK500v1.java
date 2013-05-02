@@ -24,6 +24,7 @@ public class STK500v1 {
 	private InputStream input;
 	private Logger logger;
 	private ReadWrapper readWrapper;
+	private ReadWrapper readWrapperBackup;
 	private Thread readWrapperThread;
 	/**Used to prevent stack overflow**/
 	private int syncStack = 0;
@@ -39,6 +40,7 @@ public class STK500v1 {
 
 	private ArrayList<Long> statistics;
 	private boolean partialRecovery;
+	private int timeoutRecoveries;
 
 	public STK500v1 (OutputStream output, InputStream input, Logger log, byte[] binary) {
 		state = ProtocolState.INITIALIZING;
@@ -54,6 +56,8 @@ public class STK500v1 {
 
 		readWrapperThread.start();
 		while (!readWrapper.checkIfStarted());
+		readWrapperBackup = new ReadWrapper(input, log);
+		new Thread(readWrapperBackup).start();
 
 		logger.logcat("STKv1 constructor: ReadWrapper should be started now", "v");
 		state = ProtocolState.READY;
@@ -72,10 +76,12 @@ public class STK500v1 {
 	public void recover() {
 		logger.logcat("Recover: Attempting timeout recovery", "i");
 		timeoutOccurred = true;
+		recoverySuccessful = false;
 		for (int i = 0; i < 10; i++) { 
-			recoverySuccessful = false;
 			partialRecovery = false;
 			if (spamSync()) {
+				readWrapperBackup = new ReadWrapper(input, logger);
+				new Thread(readWrapperBackup).start();
 				partialRecovery = true;
 				try {
 					synchronized(this){
@@ -86,7 +92,9 @@ public class STK500v1 {
 				}
 				if (getSynchronization()) {
 					recoverySuccessful = true;
-					logger.logcat("Recover: recovery successful", "i");
+					timeoutRecoveries++;
+					logger.logcat("Recover: recovery successful - recovered from " +
+							timeoutRecoveries + " so far.", "i");
 					break;
 				}
 			} else {
@@ -99,13 +107,15 @@ public class STK500v1 {
 	public boolean spamSync() {
 		byte[] command = {ConstantsStk500v1.STK_GET_SYNC, ConstantsStk500v1.CRC_EOP};
 		logger.logcat("spamSync: sending commands", "d");
+		ReadWrapper readWrapper = this.readWrapper;
 		for (int i = 0; i < 500; i++) {
 			if (readWrapper.canAcceptWork()) {
 				int lateByte = readWrapper.getLateByte();
 				logger.logcat("SpamSync: Late byte: " + lateByte, "i");
-				
 				//HACK test
 				if (lateByte != -1 && (byte) lateByte == ConstantsStk500v1.STK_INSYNC) {
+					readWrapper = readWrapperBackup;
+
 					if (readWrapper.requestReadByte()){
 						long time = System.currentTimeMillis();
 						while(!readWrapper.isDone()) {
@@ -120,20 +130,29 @@ public class STK500v1 {
 							}
 						}
 						int result = readWrapper.getResult();
-						if (lateByte != -1 && (byte)lateByte == ConstantsStk500v1.STK_OK) {
+						if (result != -1 && (byte)result == ConstantsStk500v1.STK_OK) {
 							logger.logcat("SpamSync: received OK", "i");
+							this.readWrapper = readWrapper;
 							return true;
 						}
 						result = decodeByte((byte) result);
-						logger.logcat("SpamSync: didnt receive OK. Got: " + result, "i");
+						logger.logcat("SpamSync: didnt receive OK. Got: " +
+								Hex.oneByteToHex((byte)result), "i");
 						return false;
 					}
+				} else if ((byte)lateByte == ConstantsStk500v1.STK_NOSYNC) {
+					logger.logcat("SpamSync: Received NOSYNC", "i");
+					//good enough for this method, getSynchronization will be run afterwards
+					return true;
 				} else {
+
 					lateByte = decodeByte((byte) lateByte);
-					logger.logcat("SpamSync: didnt receive INSYNC. Got: " + lateByte, "i");
+					logger.logcat("SpamSync: didnt receive INSYNC. Got: " +
+							Hex.oneByteToHex((byte)lateByte), "i");
+
 				}
 				//
-				
+
 				logger.logcat("SpamSync: Returning true", "i");
 				return true;
 			}
@@ -191,6 +210,7 @@ public class STK500v1 {
 		timeoutOccurred = false;
 		partialRecovery = false;
 		recoverySuccessful = false;
+		timeoutRecoveries = 0;
 		state = ProtocolState.CONNECTING;
 		long startTime;
 		long endTime;
@@ -199,45 +219,27 @@ public class STK500v1 {
 
 		// Restart the arduino.
 		// This requires the ComputerSerial library on arduino.
-		if(!softReset()) {
-			logger.logcat("programUsingOptiboot: Arduino didn't restart!", "w");
-			state = ProtocolState.ERROR_CONNECT;
-			return false;
-		}
-
-		logger.logcat("programUsingOptiboot: Waiting for the arduino to restart", "d");
-		// Wait for the arduino to start up
-		try {
-			Thread.sleep(150);
-		} catch (InterruptedException e) {
-		}
-
-		logger.logcat("programUsingOptiboot: Attempting synchronization", "d");
-		//get sync and set parameters
-		if (!getSynchronization()) {
-			stopReadWrapper();
-			state = ProtocolState.ERROR_CONNECT;
-			//give up
+		if (!resetAndSync()) {
 			return false;
 		}
 
 		//try to get programmer version
-		String version = checkIfStarterKitPresent();
-
-		logger.logcat("programUsingOptiboot: " + version, "i");
-		logger.printToConsole(version);
-
-		// Check version
-		if (!version.equals("Arduino")) {
-			stopReadWrapper();
-			state = ProtocolState.ERROR_CONNECT;
-			return false;
-		};
+		//		String version = checkIfStarterKitPresent();
+		//
+		//		logger.logcat("programUsingOptiboot: " + version, "i");
+		//		logger.printToConsole(version);
+		//
+		//		// Check version
+		//		if (!version.equals("Arduino")) {
+		//			state = ProtocolState.ERROR_CONNECT;
+		//			stopReadWrapper();
+		//			return false;
+		//		};
 
 		// Enter programming mode
 		startTime = System.currentTimeMillis();
-		for (int i = 0; i < 10; i++) {
-			logger.logcat("programUsingOptiboot: Number of tries: " + i, "v");
+		for (int i = 0; i < 5; i++) {
+			logger.logcat("programUsingOptiboot: Attempt #" + i, "v");
 
 			entered = enterProgramMode();
 			endTime = System.currentTimeMillis();
@@ -246,29 +248,29 @@ public class STK500v1 {
 					(endTime-startTime) + " ms", "v");
 
 			if (entered) {
-				long now = System.currentTimeMillis();
+//				long now = System.currentTimeMillis();
 
-				int syncFails = 0;
-				while(System.currentTimeMillis() - now < 1000) {
-					if(!getSynchronization()) {
-						if (timeoutOccurred && !recoverySuccessful){
-							state = ProtocolState.ERROR_CONNECT;
-							return false;
-						}
-						else if (timeoutOccurred) {
-							timeoutOccurred = false;
-						}
-						logger.logcat("programUsingOptiboot: Sync gave up...", "w");
-						syncFails++;
-					}
-					else {
-						//Sync OK
-						logger.logcat("programUsingOptiboot: Sync OK after " +
-								(System.currentTimeMillis()-now) + " ms.", "v");
-						break;
-					}
-				}
-				logger.logcat("programUsingOptiboot: Sync fails: " + syncFails, "v");
+//				int syncFails = 0;
+//				while(System.currentTimeMillis() - now < 1000) {
+//					if(!getSynchronization()) {
+//						if (timeoutOccurred && !recoverySuccessful){
+//							state = ProtocolState.ERROR_CONNECT;
+//							return false;
+//						}
+//						else if (timeoutOccurred) {
+//							timeoutOccurred = false;
+//						}
+//						logger.logcat("programUsingOptiboot: Sync gave up...", "w");
+//						syncFails++;
+//					}
+//					else {
+//						//Sync OK
+//						logger.logcat("programUsingOptiboot: Sync OK after " +
+//								(System.currentTimeMillis()-now) + " ms.", "v");
+//						break;
+//					}
+//				}
+//				logger.logcat("programUsingOptiboot: Sync fails: " + syncFails, "v");
 
 				// Check hex file
 				if(hexParser.getChecksumStatus()) {
@@ -287,17 +289,20 @@ public class STK500v1 {
 					}
 
 					//Upload and verify uploaded bytes.
+					statistics = new ArrayList<Long>();
 					if (uploadFile(checkWrittenData, numberOfBytes)){
 						logger.logcat("programUsingOptiboot: program successful", "d");
-					}
-
-					else {
+					} else {
 						//Write and collect statistics from writing
 						writingStats();
 						state = ProtocolState.ERROR_WRITE;
 						if (timeoutOccurred && !recoverySuccessful){
+							//TODO Should trigger hard reset and new attempt
+							logger.logcat("ProgramUsingOptiboot: Lost communication " +
+									"during programming, hard reset required!", "i");
 							return false;
 						} else if (timeoutOccurred) {
+							//recovered
 							timeoutOccurred = false;
 						}
 					}
@@ -341,16 +346,53 @@ public class STK500v1 {
 					}
 				}
 			}
+			//couldn't enter programming mode
 			else if (timeoutOccurred && !recoverySuccessful){
 				state = ProtocolState.ERROR_CONNECT;
 				return false;
 			} else if (timeoutOccurred) {
+				//recovered
 				timeoutOccurred = false;
+			}
+			//Try a soft reset before next attempt
+			if (!resetAndSync()) {
+				logger.logcat("ProgramUsingOptiboot: Unable to reset and sync!", "i");
+				return false;
 			}
 		}
 
 		// Could not enter programming mode!
 		state = ProtocolState.ERROR_CONNECT;
+		return false;
+	}
+
+	private boolean resetAndSync() {
+		boolean connect = false;
+		for (int i = 0; i < 3; i++) {
+			if(!softReset()) {
+				logger.logcat("programUsingOptiboot: Arduino didn't restart!", "w");
+				state = ProtocolState.ERROR_CONNECT;
+				return false;
+			}
+
+			logger.logcat("programUsingOptiboot: Waiting for the arduino to restart", "i");
+			// Wait for the arduino to start up
+			try {
+				Thread.sleep(150);
+			} catch (InterruptedException e) {
+			}
+
+			logger.logcat("programUsingOptiboot: Attempting synchronization", "i");
+			//get sync and set parameters
+			connect = getSynchronization();
+			if (connect) {
+				return true;
+			}
+		}
+		
+		state = ProtocolState.ERROR_CONNECT;
+		logger.logcat("programUsingOptiboot: Unable to reset and sync!", "i");
+		stopReadWrapper();
 		return false;
 	}
 
@@ -389,14 +431,21 @@ public class STK500v1 {
 	 */
 	public void stopReadWrapper() {
 		readWrapper.terminate();
+		byte[] command = {ConstantsStk500v1.STK_GET_SYNC, ConstantsStk500v1.CRC_EOP};
+		long time = System.currentTimeMillis();
 		while(readWrapperThread.isAlive()) {
-			//			try {
-			//				logger.logcat("stopReadWrapper: readWrapperThread is alive", "v");
-			//				Thread.sleep(100);
-			//			} catch (InterruptedException e) {
-			//			}
+			if (System.currentTimeMillis() - time >= 2500) {
+				logger.logcat("StopReadWrapper: Took too long to stop, give up.", "i");
+				return;
+			}
+						try {
+							output.write(command);
+							Thread.sleep(10);
+						} catch (InterruptedException e) {
+						} catch (IOException e) {
+							logger.logcat("StopReadWrapper: Can't send.\n" + e.getMessage(), "d");
+						}
 		}
-		return;
 	}
 
 	/**
@@ -656,9 +705,16 @@ public class STK500v1 {
 						(tries) + " tries.", "v");
 				syncStack = 0;
 				return true;
-			} else if (timeoutOccurred && partialRecovery) {
+			} else if (timeoutOccurred && partialRecovery && !recoverySuccessful) {
 				//this method can't recover from timeout on its own
+				logger.logcat("GetSynchronization: Only partial timeout recovery, give" +
+						" up.", "i");
 				return false;
+			} else if (timeoutOccurred && recoverySuccessful) {
+				timeoutOccurred = false;
+				logger.logcat("GetSynchronization: Recovered from timeout!", "i");
+				//now in sync
+				return true;
 			}
 			logger.logcat("getSynchronization: No sync", "v");
 		}
@@ -1570,7 +1626,7 @@ public class STK500v1 {
 					try {
 						hexData[readData] = nextLine[j][i+3];
 						readData++;
-						//FIXME: Don't catch generic exceptions!!
+						//FIXME: Don't catch generic exceptions!! Add specific ones.
 					} catch (Exception e) {
 						logger.logcat("uploadFile: " + (i +j*16) + " " + (i+3), "d");
 						logger.logcat("uploadFile: " + e, "d");
@@ -1776,8 +1832,8 @@ public class STK500v1 {
 	 * Standard timeout values for how long to wait for reading results.
 	 */
 	private enum TimeoutValues{
-		DEFAULT(800),
-		CONNECT(1000),
+		DEFAULT(450),
+		CONNECT(450),
 		READ(800),
 		SHORT_READ(800),
 		RESTART(800),
