@@ -24,6 +24,8 @@ public class ReadWrapper implements Runnable {
 	private State oldState;
 	private boolean resultsSet;
 	
+	private volatile int byteReceivedAfterCancellation = 0;
+	
 	byte[] buffer;
 	int bytesRead;
 	
@@ -112,7 +114,7 @@ public class ReadWrapper implements Runnable {
 		boolean check = (state == State.WAITING || state == State.REQUEST_CANCELLED_RESULT_READY);
 		if(!check) {
 			logger.logcat("canAcceptWork: Work not accepted, state: " + 
-					state.toString(), "d");
+					state.toString(), "v");
 		}
 		return check;
 	}
@@ -130,11 +132,12 @@ public class ReadWrapper implements Runnable {
 					oldState = State.WAITING;
 					state = State.READING;
 					buffer = null;
-				} else if (!strictPolicy) {
-					//accept the result
-					oldState = State.READING;
-					state = State.RESULT_READY;
-				} else {
+				}
+//				else if (!strictPolicy) {
+//					//accept the result
+//					oldState = State.READING;
+//					state = State.RESULT_READY;
+				else {
 					//strict policy enabled, discard result
 					oldState = State.WAITING;
 					state = State.READING;
@@ -147,10 +150,13 @@ public class ReadWrapper implements Runnable {
 					return false;
 				}
 				state = State.READING_CONTINUED;
-			} else {
+			} else if (state == State.WAITING) {
 				//this is request arriving to a prepared wrapper
 				buffer = null;
 				state = State.READING;
+			} else {
+				logger.logcat("Invalid result from canAcceptWork(), should have returned false", "e");
+				return false;
 			}
 		} else {
 			//can't accept work
@@ -288,10 +294,8 @@ public class ReadWrapper implements Runnable {
 				//nothing to do for now, pause execution
 				synchronized(this) {
 					try {
-						wait();
-					} catch (InterruptedException e) {
-						//TODO consider doing something
-					}
+						wait(1);
+					} catch (InterruptedException e) {}
 				}
 				break;
 			}
@@ -320,10 +324,8 @@ public class ReadWrapper implements Runnable {
 				//nothing to do for now, pause execution
 				synchronized(this) {
 					try {
-						wait();
-					} catch (InterruptedException e) {
-						//TODO consider doing something
-					}
+						wait(1);
+					} catch (InterruptedException e) {}
 				}
 				
 				//code from here on also executed if in READING_CONTINUED state
@@ -364,16 +366,15 @@ public class ReadWrapper implements Runnable {
 				//nothing to do for now, pause execution
 				synchronized(this) {
 					try {
-						wait();
-					} catch (InterruptedException e) {
-						//TODO consider doing something
-					}
+						wait(5);
+					} catch (InterruptedException e) {}
 				}
 				break;
 			}
 			case REQUEST_CANCELLED: {
 				if (state != oldState) {
 					logger.logcat("run: Read request cancelled", "d");
+					oldState = state;
 				}
 				
 				if (reader.isDone()) {
@@ -384,10 +385,8 @@ public class ReadWrapper implements Runnable {
 				//nothing to do for now, pause execution
 				synchronized(this) {
 					try {
-						wait();
-					} catch (InterruptedException e) {
-						//TODO consider doing something
-					}
+						wait(1);
+					} catch (InterruptedException e) {}
 				}
 				break;
 			}
@@ -397,19 +396,18 @@ public class ReadWrapper implements Runnable {
 					//get result based on request type
 					if (buffer == null) {
 						byteResult = reader.getSingleByteResult();
+						byteReceivedAfterCancellation = byteResult;
 					} else {
 						bytesRead = reader.getReadBytesFromResult();
 					}
-					//TODO Consider setting resultSet to true
+					oldState = state;
 				}
 
 				//nothing to do for now, pause execution
 				synchronized(this) {
 					try {
-						wait();
-					} catch (InterruptedException e) {
-						//TODO consider doing something
-					}
+						wait(5);
+					} catch (InterruptedException e) {}
 				}
 				break;
 			}
@@ -430,10 +428,8 @@ public class ReadWrapper implements Runnable {
 				//nothing to do for now, pause execution
 				synchronized(this) {
 					try {
-						wait();
-					} catch (InterruptedException e) {
-						//TODO consider doing something
-					}
+						wait(5);
+					} catch (InterruptedException e) {}
 				}
 				break;
 			}
@@ -458,6 +454,10 @@ public class ReadWrapper implements Runnable {
 			} catch (InterruptedException e) {
 			}
 		}
+	}
+	
+	public int getLateByte() {
+		return byteReceivedAfterCancellation;
 	}
 	
 	/**
@@ -658,7 +658,7 @@ public class ReadWrapper implements Runnable {
 					//own monitor before waiting:
 					synchronized(this) {
 						try {
-							wait();
+							wait(10);
 						} catch (InterruptedException e) {
 							//only log message if reader is supposed to read
 							if (!ready && !resultReady) {
@@ -691,7 +691,7 @@ public class ReadWrapper implements Runnable {
 					//own monitor before waiting:
 					synchronized(this) {
 						try {
-							wait();
+							wait(10);
 						} catch (InterruptedException e) {
 							//only log message if reader is supposed to read
 							if (ready && !resultReady) {

@@ -3,6 +3,8 @@ package no.group09.stk500_v1;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -35,6 +37,9 @@ public class STK500v1 {
 	/** Flag used to mark successful timeout recovery */
 	private boolean recoverySuccessful = false;
 
+	private ArrayList<Long> statistics;
+	private boolean partialRecovery;
+
 	public STK500v1 (OutputStream output, InputStream input, Logger log, byte[] binary) {
 		state = ProtocolState.INITIALIZING;
 		this.hexParser = new Hex(binary, log);
@@ -46,57 +51,130 @@ public class STK500v1 {
 
 		readWrapper = new ReadWrapper(input, log);
 		readWrapperThread = new Thread(readWrapper);
-		
+
 		readWrapperThread.start();
 		while (!readWrapper.checkIfStarted());
-		
+
 		logger.logcat("STKv1 constructor: ReadWrapper should be started now", "v");
 		state = ProtocolState.READY;
 		//readWrapper.setStrictPolicy(false);
+
+		statistics = new ArrayList<Long>();
 	}
-	
+
 	/**
 	 * Get the state the protocol is in.
 	 */
 	public ProtocolState getProtocolState() {
 		return state;
 	}
-	
+
 	public void recover() {
 		logger.logcat("Recover: Attempting timeout recovery", "i");
 		timeoutOccurred = true;
-		recoverySuccessful = false;
-		if (spamSync()) {
-			if (getSynchronization()) {
-				recoverySuccessful = true;
-				logger.logcat("Recover: recovery successful", "i");
+		for (int i = 0; i < 10; i++) { 
+			recoverySuccessful = false;
+			partialRecovery = false;
+			if (spamSync()) {
+				partialRecovery = true;
+				try {
+					synchronized(this){
+						wait(5);
+					}
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+				if (getSynchronization()) {
+					recoverySuccessful = true;
+					logger.logcat("Recover: recovery successful", "i");
+					break;
+				}
+			} else {
+				logger.logcat("recover: Unable to regain comms", "i");
+				break;
 			}
 		}
 	}
-	
+
 	public boolean spamSync() {
 		byte[] command = {ConstantsStk500v1.STK_GET_SYNC, ConstantsStk500v1.CRC_EOP};
 		logger.logcat("spamSync: sending commands", "d");
-		for (int i = 0; i < 1000; i++) {
-			if (readWrapper.canAcceptWork() && i > 5) {
+		for (int i = 0; i < 500; i++) {
+			if (readWrapper.canAcceptWork()) {
+				int lateByte = readWrapper.getLateByte();
+				logger.logcat("SpamSync: Late byte: " + lateByte, "i");
+				
+				//HACK test
+				if (lateByte != -1 && (byte) lateByte == ConstantsStk500v1.STK_INSYNC) {
+					if (readWrapper.requestReadByte()){
+						long time = System.currentTimeMillis();
+						while(!readWrapper.isDone()) {
+							if ((System.currentTimeMillis() - time) > TimeoutValues.CONNECT.getTimeout()) {
+								logger.logcat("SpamSync: read timed out", "i");
+								readWrapper.cancelRequest();
+								return false;
+							}
+							if (readWrapper.checkIfFailed()) {
+								logger.logcat("SpamSync: readwrapper checkiffailed returned true", "i");
+								return false;
+							}
+						}
+						int result = readWrapper.getResult();
+						if (lateByte != -1 && (byte)lateByte == ConstantsStk500v1.STK_OK) {
+							logger.logcat("SpamSync: received OK", "i");
+							return true;
+						}
+						result = decodeByte((byte) result);
+						logger.logcat("SpamSync: didnt receive OK. Got: " + result, "i");
+						return false;
+					}
+				} else {
+					lateByte = decodeByte((byte) lateByte);
+					logger.logcat("SpamSync: didnt receive INSYNC. Got: " + lateByte, "i");
+				}
+				//
+				
 				logger.logcat("SpamSync: Returning true", "i");
 				return true;
 			}
 			try {
 				output.write(command);
 			} catch (IOException e) {
-				e.printStackTrace();
+				logger.logcat("Unable to send sync: " + e.getMessage(), "i");
 				return false;
 			}
 			try {
 				Thread.sleep(10);
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}
+			} catch (InterruptedException e) {}
 		}
+		logger.logcat("SpamSync: unable to recover. Returning false", "i");
 		return false;
 	}
-	
+
+	private void writingStats() {
+		long min = Long.MAX_VALUE;
+		long max = 0;
+		int size = statistics.size();
+		long sum = 0;
+		long average = 0;
+
+		for (int i = 0; i < statistics.size(); i++) {
+			long temp = statistics.get(i);
+			if (temp > max) {
+				max = temp;
+			}
+			if (temp < min) {
+				min = temp;
+			}
+			sum += temp;
+		}
+		if (size != 0) average = sum/size;
+
+		logger.logcat("writingStats: MAX: " + max, "i");
+		logger.logcat("writingStats: MIN: " + min, "i");
+		logger.logcat("writingStats: Average of " + size + ": " + average, "i");
+	}
+
 	/**
 	 * Start the programming process. This includes initializing communication
 	 * with the bootloader.
@@ -111,13 +189,14 @@ public class STK500v1 {
 	 */
 	public boolean programUsingOptiboot(boolean checkWrittenData, int numberOfBytes) {
 		timeoutOccurred = false;
+		partialRecovery = false;
 		recoverySuccessful = false;
 		state = ProtocolState.CONNECTING;
 		long startTime;
 		long endTime;
 		boolean entered;
 		logger.logcat("programUsingOptiboot: Initializing programmer", "v");
-		
+
 		// Restart the arduino.
 		// This requires the ComputerSerial library on arduino.
 		if(!softReset()) {
@@ -125,15 +204,15 @@ public class STK500v1 {
 			state = ProtocolState.ERROR_CONNECT;
 			return false;
 		}
-		
-		logger.logcat("programUsingOptiboot: Waiting...", "d");
+
+		logger.logcat("programUsingOptiboot: Waiting for the arduino to restart", "d");
 		// Wait for the arduino to start up
 		try {
 			Thread.sleep(150);
 		} catch (InterruptedException e) {
 		}
-		
-		logger.logcat("programUsingOptiboot: Sync...", "d");
+
+		logger.logcat("programUsingOptiboot: Attempting synchronization", "d");
 		//get sync and set parameters
 		if (!getSynchronization()) {
 			stopReadWrapper();
@@ -141,25 +220,25 @@ public class STK500v1 {
 			//give up
 			return false;
 		}
-		
+
 		//try to get programmer version
 		String version = checkIfStarterKitPresent();
-		
+
 		logger.logcat("programUsingOptiboot: " + version, "i");
 		logger.printToConsole(version);
-		
+
 		// Check version
 		if (!version.equals("Arduino")) {
 			stopReadWrapper();
 			state = ProtocolState.ERROR_CONNECT;
 			return false;
 		};
-		
+
 		// Enter programming mode
 		startTime = System.currentTimeMillis();
 		for (int i = 0; i < 10; i++) {
 			logger.logcat("programUsingOptiboot: Number of tries: " + i, "v");
-			
+
 			entered = enterProgramMode();
 			endTime = System.currentTimeMillis();
 
@@ -190,11 +269,11 @@ public class STK500v1 {
 					}
 				}
 				logger.logcat("programUsingOptiboot: Sync fails: " + syncFails, "v");
-				
+
 				// Check hex file
 				if(hexParser.getChecksumStatus()) {
 					logger.logcat("programUsingOptiboot: Starting to write and read.", "v");
-					
+
 					// Erase chip before starting to program
 					if(!chipEraseUniversal()) {
 						if (timeoutOccurred && !recoverySuccessful){
@@ -206,12 +285,15 @@ public class STK500v1 {
 						logger.logcat("uploadFile: Chip not erased!", "w");
 						break;
 					}
-					
+
 					//Upload and verify uploaded bytes.
 					if (uploadFile(checkWrittenData, numberOfBytes)){
 						logger.logcat("programUsingOptiboot: program successful", "d");
 					}
+
 					else {
+						//Write and collect statistics from writing
+						writingStats();
 						state = ProtocolState.ERROR_WRITE;
 						if (timeoutOccurred && !recoverySuccessful){
 							return false;
@@ -219,6 +301,8 @@ public class STK500v1 {
 							timeoutOccurred = false;
 						}
 					}
+					//Write and collect statistics from writing
+					writingStats();
 				}
 				else {
 					state = ProtocolState.ERROR_PARSE_HEX;
@@ -264,12 +348,12 @@ public class STK500v1 {
 				timeoutOccurred = false;
 			}
 		}
-		
+
 		// Could not enter programming mode!
 		state = ProtocolState.ERROR_CONNECT;
 		return false;
 	}
-	
+
 	/**
 	 * Reset arduino. This requires the ComputerSerial library on the arduino.
 	 */
@@ -282,9 +366,9 @@ public class STK500v1 {
 		write[3] = (byte)0xFF;
 		write[4] = (byte)0x00;
 		write[5] = (byte)0x00;
-		
+
 		logger.logcat("softReset: Sending bytes to restart arduino: " + Hex.bytesToHex(write), "d");
-		
+
 		// Restart arduino by sending reset command to arduino
 		try {
 			for (int i = 0; i < write.length; i++) {
@@ -294,7 +378,7 @@ public class STK500v1 {
 			logger.logcat("softReset: Could not write to arduino.", "w");
 			return false;
 		}
-		
+
 		// We don't get any result back from arduino, so we assume it's OK
 		logger.logcat("softReset: Restarting arduino...", "w");
 		return true;
@@ -306,15 +390,15 @@ public class STK500v1 {
 	public void stopReadWrapper() {
 		readWrapper.terminate();
 		while(readWrapperThread.isAlive()) {
-//			try {
-//				logger.logcat("stopReadWrapper: readWrapperThread is alive", "v");
-//				Thread.sleep(100);
-//			} catch (InterruptedException e) {
-//			}
+			//			try {
+			//				logger.logcat("stopReadWrapper: readWrapperThread is alive", "v");
+			//				Thread.sleep(100);
+			//			} catch (InterruptedException e) {
+			//			}
 		}
 		return;
 	}
-	
+
 	/**
 	 * Starts the wrapper if it isn't running already.
 	 * @return true if it could be started.
@@ -327,14 +411,14 @@ public class STK500v1 {
 		}
 		readWrapper = new ReadWrapper(input, logger);
 		readWrapperThread = new Thread(readWrapper);
-		
+
 		readWrapperThread.start();
 		while (!readWrapper.checkIfStarted());
-		
+
 		logger.logcat("recreateWrapper: ReadWrapper should be started now", "v");
 		return true;
 	}
-	
+
 	/**
 	 * Check if the read wrapper is running
 	 * @return true if it is
@@ -352,75 +436,75 @@ public class STK500v1 {
 		}
 		return true;
 	}
-	
+
 	//TODO: This is not used by optiboot!
-//	private boolean sendExtendedParameters() {
-//		//(byte) 45,  (byte) 05, (byte) 04, (byte) d7, (byte) c2, (byte) 00, (byte) 20
-//		byte[] command = new byte[] {
-//				(byte) 0x45,  (byte) 5, (byte) 4, (byte) 0xd7, (byte) 0xc2, (byte) 0, (byte) 0x20	
-//			};
-//		try {
-//			logger.logcat("sendExtendedParameters: sending bytes: " +
-//					Hex.bytesToHex(command), "d");
-//			output.write(command);
-//		} catch (IOException e) {
-//			logger.logcat("sendExtendedParameters: error sending command", "w");
-//		}
-//		return checkInput();
-//	}
-	
+	//	private boolean sendExtendedParameters() {
+	//		//(byte) 45,  (byte) 05, (byte) 04, (byte) d7, (byte) c2, (byte) 00, (byte) 20
+	//		byte[] command = new byte[] {
+	//				(byte) 0x45,  (byte) 5, (byte) 4, (byte) 0xd7, (byte) 0xc2, (byte) 0, (byte) 0x20	
+	//			};
+	//		try {
+	//			logger.logcat("sendExtendedParameters: sending bytes: " +
+	//					Hex.bytesToHex(command), "d");
+	//			output.write(command);
+	//		} catch (IOException e) {
+	//			logger.logcat("sendExtendedParameters: error sending command", "w");
+	//		}
+	//		return checkInput();
+	//	}
+
 	//TODO: This is not used by optiboot!
-//	private boolean sendParameters() {
-//		//B [42] .               [86] .    [00] .    [00] .    [01] .    [01] .    [01] .   [01] .     [03] .       [ff] .      [ff] .        [ff] .      [ff] .   ph[00] .     pl[80] .    [04] .    [00] .    [00] .    [00] .       [80] . [00]   [20]
-//		byte[] command = new byte[] {
-//			//(byte) 0x42, (byte) 0x86, (byte) 0, (byte) 0, (byte) 1, (byte) 1, (byte) 1, (byte) 1, (byte) 3, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0, (byte) 0x80, (byte) 4, (byte) 0, (byte) 0, (byte) 0, (byte) 0x80, (byte) 0, (byte) 0x20
-//			(byte) 0x42, (byte) 0x86, (byte) 0, (byte) 0, (byte) 1, (byte) 1, (byte) 1, (byte) 1, (byte) 3, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0, (byte) 0x80, (byte) 4, (byte) 0, (byte) 0, (byte) 0, (byte) 0x80, (byte) 0, (byte) 0x20	
-//		};
-//		try {
-//			logger.logcat("sendParameters: sending bytes: " + Hex.bytesToHex(command), "d");
-//			output.write(command);
-//		} catch (IOException e) {
-//			logger.logcat("sendparameters: error sending command", "w");
-//		}
-//		return checkInput();
-//	}
-	
+	//	private boolean sendParameters() {
+	//		//B [42] .               [86] .    [00] .    [00] .    [01] .    [01] .    [01] .   [01] .     [03] .       [ff] .      [ff] .        [ff] .      [ff] .   ph[00] .     pl[80] .    [04] .    [00] .    [00] .    [00] .       [80] . [00]   [20]
+	//		byte[] command = new byte[] {
+	//			//(byte) 0x42, (byte) 0x86, (byte) 0, (byte) 0, (byte) 1, (byte) 1, (byte) 1, (byte) 1, (byte) 3, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0, (byte) 0x80, (byte) 4, (byte) 0, (byte) 0, (byte) 0, (byte) 0x80, (byte) 0, (byte) 0x20
+	//			(byte) 0x42, (byte) 0x86, (byte) 0, (byte) 0, (byte) 1, (byte) 1, (byte) 1, (byte) 1, (byte) 3, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0, (byte) 0x80, (byte) 4, (byte) 0, (byte) 0, (byte) 0, (byte) 0x80, (byte) 0, (byte) 0x20	
+	//		};
+	//		try {
+	//			logger.logcat("sendParameters: sending bytes: " + Hex.bytesToHex(command), "d");
+	//			output.write(command);
+	//		} catch (IOException e) {
+	//			logger.logcat("sendparameters: error sending command", "w");
+	//		}
+	//		return checkInput();
+	//	}
+
 	//TODO: Not used by optiboot
 	private void setParameters() {
-	//		for (int i = 0; i < 10; i++) {
-	//		if (sendParameters()) {
-	//			logger.logcat("STK Constructor: succeeded in setting parameters", "i");
-	//			break;
-	//		} else if (i ==9) {
-	//			//give up
-	//			logger.logcat("STK Constructor: Unable to set parameters", "i");
-	//			readWrapper.terminate();
-	//			return;
-	//		}
-	//	}
-	//	
-	//	for (int i = 0; i < 10; i++) {
-	//		if (sendExtendedParameters()) {
-	//			logger.logcat("STK Constructor: succeeded in setting extended parameters", "i");
-	//			break;
-	//		} else if (i ==9) {
-	//			//give up
-	//			logger.logcat("STK Constructor: Unable to set extended parameters", "i");
-	//			readWrapper.terminate();
-	//			return;
-	//		}
-	//	}
+		//		for (int i = 0; i < 10; i++) {
+		//		if (sendParameters()) {
+		//			logger.logcat("STK Constructor: succeeded in setting parameters", "i");
+		//			break;
+		//		} else if (i ==9) {
+		//			//give up
+		//			logger.logcat("STK Constructor: Unable to set parameters", "i");
+		//			readWrapper.terminate();
+		//			return;
+		//		}
+		//	}
+		//	
+		//	for (int i = 0; i < 10; i++) {
+		//		if (sendExtendedParameters()) {
+		//			logger.logcat("STK Constructor: succeeded in setting extended parameters", "i");
+		//			break;
+		//		} else if (i ==9) {
+		//			//give up
+		//			logger.logcat("STK Constructor: Unable to set extended parameters", "i");
+		//			readWrapper.terminate();
+		//			return;
+		//		}
+		//	}
 	}
-	
+
 	private void uploadZeroes(boolean usePages) {
 		int totalBytesToWrite = 128;
 		int bytesToWrite = 2;
 		byte[] data = new byte[] {1, 1};
 		byte[] highLow;
-		
+
 		byte lengthLow = (byte) bytesToWrite;
 		byte lengthHigh = (byte) 0;
-		
+
 		int errorCount = 0;
 		if (usePages) {
 			//use programpage
@@ -457,7 +541,7 @@ public class STK500v1 {
 					//continue method
 				}
 			}
-			
+
 			while (i < bytesToWrite / 2 && errorCount < 10) {
 				logger.logcat("uploadZeroes: write word " + wordsWritten, "i");
 				if (programFlashMemory((byte) 0, (byte) 0)) {
@@ -470,9 +554,9 @@ public class STK500v1 {
 					logger.logcat("uploadZeroes: error writing word #" + wordsWritten, "w");
 				}
 			}
-			
+
 			logger.logcat("uploadZeroes: wrote " + wordsWritten + " words.", "i");
-			
+
 		}
 	}
 
@@ -567,11 +651,14 @@ public class STK500v1 {
 				return false;
 			}
 			//If the response is valid, return. If not, continue
-			if (checkInput()) {
+			if (checkInput(false, ConstantsStk500v1.STK_GET_SYNC, TimeoutValues.CONNECT)) {
 				logger.logcat("getSynchronization: Sync achieved after " + 
 						(tries) + " tries.", "v");
 				syncStack = 0;
 				return true;
+			} else if (timeoutOccurred && partialRecovery) {
+				//this method can't recover from timeout on its own
+				return false;
 			}
 			logger.logcat("getSynchronization: No sync", "v");
 		}
@@ -633,7 +720,7 @@ public class STK500v1 {
 	private boolean leaveProgramMode() {
 		//send command
 		byte[] command = new byte[] {
-			ConstantsStk500v1.STK_LEAVE_PROGMODE, ConstantsStk500v1.CRC_EOP
+				ConstantsStk500v1.STK_LEAVE_PROGMODE, ConstantsStk500v1.CRC_EOP
 		};
 
 		try {
@@ -658,9 +745,9 @@ public class STK500v1 {
 	 */
 	private boolean chipErase() {
 		byte[] command = new byte[]{ConstantsStk500v1.STK_CHIP_ERASE, ConstantsStk500v1.CRC_EOP};
-		
+
 		logger.logcat("chipErase: Sending bytes to erase chip: " + Hex.bytesToHex(command), "d");
-		
+
 		try {
 			output.write(command);
 			logger.logcat("chipErase: Chip erased!", "d");
@@ -675,23 +762,23 @@ public class STK500v1 {
 		}
 		return ok;
 	}
-	
+
 	/**
 	 * Erase the device to prepare for programming using the universal command
 	 * @return true if successful.
 	 */
 	private boolean chipEraseUniversal() {
 		byte[] command = new byte[6];
-		
+
 		command[0] = ConstantsStk500v1.STK_UNIVERSAL;
 		command[1] = (byte)172; 
 		command[2] = (byte)128;
 		command[3] = (byte)0;
 		command[4] = (byte)0;
 		command[5] = ConstantsStk500v1.CRC_EOP;
-		
+
 		logger.logcat("chipEraseUniversal: Sending bytes to erase chip: " + Hex.bytesToHex(command), "d");
-		
+
 		//Try to write
 		try {
 			output.write(command);
@@ -703,16 +790,16 @@ public class STK500v1 {
 		//read start command + n data bytes + end command
 		byte[] in = new byte[3];
 		int numberOfBytes;
-		
+
 		logger.logcat("chipEraseUniversal: Waiting for " + in.length + " bytes.", "d");
-		
+
 		//Read data
 		try {
 			for (int i = 0; i < 3; i++) {
 				numberOfBytes = read(TimeoutValues.READ);
-				
+
 				in[i] = (byte)numberOfBytes;
-				
+
 				switch (i) {
 				case 0:
 					if(numberOfBytes != ConstantsStk500v1.STK_INSYNC) {
@@ -779,18 +866,18 @@ public class STK500v1 {
 	 * @return true if it is OK to write the address, false if not.
 	 */
 	private boolean loadAddress(int address) {
-//		try {
-//			Thread.sleep(SLEEP_DELAY);
-//		} catch (InterruptedException e1) {
-//			// TODO Auto-generated catch block
-//			e1.printStackTrace();
-//		}
-		
+		//		try {
+		//			Thread.sleep(SLEEP_DELAY);
+		//		} catch (InterruptedException e1) {
+		//			// TODO Auto-generated catch block
+		//			e1.printStackTrace();
+		//		}
+
 		//Split integer address into two bytes address 
 		byte[] tempAddr = packTwoBytes(address / 2);
-		
+
 		byte[] loadAddr = new byte[4];
-		
+
 		loadAddr[0] = ConstantsStk500v1.STK_LOAD_ADDRESS;
 		loadAddr[1] = tempAddr[1];
 		loadAddr[2] = tempAddr[0];
@@ -806,7 +893,7 @@ public class STK500v1 {
 			e.printStackTrace();
 			return false;
 		}
-		
+
 		if (checkInput()){
 			logger.logcat("loadAddress: address loaded", "i");
 			return true;
@@ -891,18 +978,18 @@ public class STK500v1 {
 	 * @return true if response is STK_INSYNC and STK_OK, false if not.
 	 */
 	private boolean programPage(byte bytes_high, byte bytes_low, boolean writeFlash, byte[] data) {
-//		try {
-//			Thread.sleep(SLEEP_DELAY);
-//		} catch (InterruptedException e1) {
-//			// TODO Auto-generated catch block
-//			e1.printStackTrace();
-//		}
-		
+		//		try {
+		//			Thread.sleep(SLEEP_DELAY);
+		//		} catch (InterruptedException e1) {
+		//			// TODO Auto-generated catch block
+		//			e1.printStackTrace();
+		//		}
+
 		byte[] programPage = new byte[5+data.length];
 		byte memtype;
 
 		programPage[0] = ConstantsStk500v1.STK_PROG_PAGE;
-		
+
 		// Write flash
 		if (writeFlash) {
 			memtype = (byte)'F';
@@ -929,7 +1016,7 @@ public class STK500v1 {
 		logger.logcat("programPage: Writing bytes: " + Hex.bytesToHex(programPage), "d");
 		logger.logcat("programPage: Data array: " + Hex.bytesToHex(data), "v");
 		logger.logcat("programPage: programPage array, length: " + programPage.length, "v");
-		
+
 		// Send bytes
 		try {
 			output.write(programPage);
@@ -938,11 +1025,15 @@ public class STK500v1 {
 			e.printStackTrace();
 			return false;
 		}
-		
-		return checkInput();
+		long currentTime = System.currentTimeMillis();
+		boolean result = checkInput(false, ConstantsStk500v1.STK_PROG_PAGE, TimeoutValues.WRITE);
+
+		if (result) statistics.add(System.currentTimeMillis() - currentTime);
+
+		return result;
 	}
-	
-	
+
+
 	/**
 	 * Read a block of data from FLASH or EEPROM of the current device. The data
 	 * block size should not be larger than 256 bytes. bytes_high and bytes_low
@@ -988,7 +1079,7 @@ public class STK500v1 {
 		byte memtype;
 
 		readCommand[0] = ConstantsStk500v1.STK_READ_PAGE;
-		
+
 		// Read flash
 		if (writeFlash) {
 			memtype = (byte)'F';
@@ -1007,7 +1098,7 @@ public class STK500v1 {
 
 		logger.logcat("readPage: Sending bytes: " + 
 				Hex.bytesToHex(readCommand), "d");
-		
+
 		// Send bytes
 		try {
 			output.write(readCommand);
@@ -1016,19 +1107,19 @@ public class STK500v1 {
 					"readPage", "w");
 			e.printStackTrace();
 		}
-		
+
 		int numberOfBytes = 0;
-		
+
 		//read start command + n data bytes + end command
 		byte[] in = new byte[unPackTwoBytes(bytes_high, bytes_low)]; 
-		
+
 		logger.logcat("readPage: Waiting for " + in.length + " bytes.", "d");
-		
+
 		//Read data
 		try {
 			for (int i = 0; i < in.length+2; i++) {
 				numberOfBytes = read(TimeoutValues.READ);
-				
+
 				// First byte
 				if(i==0) {
 					if(numberOfBytes != ConstantsStk500v1.STK_INSYNC) {
@@ -1065,7 +1156,7 @@ public class STK500v1 {
 			return null;
 		}
 	}
-	
+
 	/**
 	 * Check the data in hex file and compare it with read bytes on Arduino
 	 * 
@@ -1075,7 +1166,7 @@ public class STK500v1 {
 	public boolean readWrittenBytes() {
 		return readWrittenBytes(128, false);
 	}
-	
+
 	/**
 	 * Check the data in hex file and compare it with read bytes on Arduino
 	 * 
@@ -1089,26 +1180,26 @@ public class STK500v1 {
 		//Calculate progress
 		if(progressStart) progress = 0;
 		else progress = 50;
-		
+
 		logger.logcat("progress: " + getProgress() + " %", "d");
-		
+
 		// Check input
 		if(!checkReadWriteBytes(bytesToLoad)) return false;
-		
+
 		//Parsing through the hex file to compare output
 		int x = 0;
 		int dataSize = 0;
-		
+
 		while(x < hexParser.getLines()) {
 			int readLines = 0;
-			
+
 			logger.logcat("readWrittenBytes: Resetting readPage datasize.", "v");
 			int loadErrors = 0;
-			
+
 			//Load address
 			byte[] tempLoadAddress = hexParser.getLoadAddress(x); 
 			if(!loadAddress(tempLoadAddress[0],tempLoadAddress[1])) {
-//			if(!loadAddress(x*(bytesToLoad/16)*2)) {
+				//			if(!loadAddress(x*(bytesToLoad/16)*2)) {
 				logger.logcat("readWrittenBytes: Could not load address...", "w");
 				if(loadErrors>3) {
 					logger.logcat("readWrittenBytes: Canceling reading...", "w");
@@ -1117,34 +1208,34 @@ public class STK500v1 {
 				loadErrors++;
 				break;
 			}
-			
+
 			//Find how many bytes to load
 			int numberOfLines = bytesToLoad/16;
 			dataSize = 0;
-			
+
 			for(int y = 0; y < numberOfLines; y++) {
 				//Out of bounds, stop here
 				if(hexParser.getDataSizeOnLine(x) == -1) {
 					break;
 				}
-				
+
 				readLines++;
 				dataSize += hexParser.getDataSizeOnLine(x);
 				logger.logcat("readWrittenBytes: New dataSize: " + dataSize + " line " + (x), "v");
 				x++;
 			}
-			
+
 			logger.logcat("readWrittenBytes: Data size to read: " + dataSize, "d");
-			
+
 			//readPage returns an empty array if it fails
 			byte readArray[] = readPage(dataSize, true);
 			if(readArray != null) { 
-//				logger.logcat("readWrittenBytes: Read bytes: " + Hex.bytesToHex(readArray), "d");
-				
+				//				logger.logcat("readWrittenBytes: Read bytes: " + Hex.bytesToHex(readArray), "d");
+
 				//Compare read data and data on line x in the hex file
 				if(hexParser.checkBytesOnLine(x-readLines, readArray)) {
 					logger.logcat("readWrittenBytes: Verified line " + x + "!", "d");
-					
+
 					// Calculate progress
 					if(progressStart) progress = (double)x / (double)hexParser.getLines() * 100;
 					else progress = (double)x / (double)hexParser.getLines() * 50 + 50;
@@ -1165,7 +1256,7 @@ public class STK500v1 {
 		}
 		return true;
 	}
-	
+
 
 	/**
 	 * Read one byte from EEPROM memory.
@@ -1290,26 +1381,26 @@ public class STK500v1 {
 
 		try {
 			intInput = read(timeout);
-		
+
 			if (intInput == -1) {
 				logger.logcat("checkInput: End of stream encountered", "w");
 				return false;
 			}
-		
+
 			byte byteInput;
-		
+
 			if (intInput == ConstantsStk500v1.STK_INSYNC){
-				
+
 				intInput = read(timeout);
-		
+
 				if (intInput == -1) {
 					logger.logcat("checkInput: End of stream encountered", "w");
 					return false;
 				}
-		
+
 				//Input is not equal to -1. Cast to byte
 				byteInput = (byte)intInput;
-		
+
 				//if this is a command expected to return other things in addition to sync and ok:
 				if (checkCommand) {
 					switch (command) {
@@ -1331,10 +1422,10 @@ public class STK500v1 {
 						throw new IllegalArgumentException("Unhandled argument:" + command);
 					}
 					}
-		
+
 				} else {
 					if (byteInput == ConstantsStk500v1.STK_OK) {
-		
+
 						//Two bytes sent. Response OK. Return true
 						return true;
 					}
@@ -1352,7 +1443,7 @@ public class STK500v1 {
 				syncStack++;
 				return false;
 			}
-		
+
 		} catch (TimeoutException e) {
 			logger.logcat("checkInput: Timeout!", "w");
 			if (!timeoutOccurred) {
@@ -1389,7 +1480,7 @@ public class STK500v1 {
 			e.printStackTrace();
 			return false;
 		}
-		
+
 		if(checkInput()) {
 			logger.logcat("programFlashMemory: word written", "v");
 			return true;
@@ -1409,17 +1500,17 @@ public class STK500v1 {
 	 */
 	private boolean uploadFile(boolean checkWrittenData, int bytesToLoad) {
 		//FIXME: Fix bug to support more than 16 bytes writing / reading
-//		bytesToLoad = 16;
-		
+		//		bytesToLoad = 16;
+
 		// Calculate progress
 		state = ProtocolState.WRITING;//TODO: if Check checkReadWriteBytes and chipErase
 		//universal needs state updates after merging
 		progress = 0;
 		logger.logcat("progress: " + getProgress() + " %", "d");
-		
+
 		// Check input
 		if(!checkReadWriteBytes(bytesToLoad)) return false;
-		
+
 		//Get the total length of the hex-file in number of lines.
 		int hexLength = hexParser.getLines();
 
@@ -1433,7 +1524,7 @@ public class STK500v1 {
 		//Run through the entire hex file, ignoring the last line
 		while (hexPosition < hexLength) {
 			readData = 0;
-			
+
 			//loadAddress
 			if(programPageTries>3) {
 				logger.logcat("uploadFile: Could not write from line " +
@@ -1441,24 +1532,24 @@ public class STK500v1 {
 				state = ProtocolState.ERROR_WRITE;
 				return false;
 			}
-			
+
 			//How many lines from hex file should be combine.
 			//Always divide on 16 to get lines
 			int bytesOnLine = bytesToLoad/16;
-			
+
 			byte[][] nextLine = new byte[bytesOnLine][];
-			
+
 			//Fetch the next lines to be written from the hex-file and
 			//find the length of the data field
 			int dataLength = 0;
-			
+
 			// Go through lines
 			for (int i = 0; i < bytesOnLine; i++) {
 				nextLine[i] = hexParser.getHexLine(hexPosition+i);
 				logger.logcat("uploadFile: hexParser: " + Hex.bytesToHex(nextLine[i]), "v");
-				
+
 				dataLength += decodeByte(nextLine[i][0]);
-				
+
 				if(nextLine[i] == null || nextLine[i][0] == 0) {
 					bytesOnLine = i+1;
 					logger.logcat("uploadFile: Empty line.", "d");
@@ -1468,7 +1559,7 @@ public class STK500v1 {
 
 			//Byte array used to store data only
 			byte[] hexData = new byte[dataLength];
-			
+
 			logger.logcat("uploadFile: dataLength: " + dataLength, "d");
 
 			//Store data from the next line in the hex-file in a separate array
@@ -1503,7 +1594,7 @@ public class STK500v1 {
 			}
 
 			byte[] byteSize = packTwoBytes(dataLength);
-			
+
 			logger.logcat("uploadFile: Trying to write data from line " +
 					hexPosition + " from hex file.", "d");
 			boolean programPageSuccess = programPage(byteSize[0], byteSize[1], true, hexData);
@@ -1511,13 +1602,13 @@ public class STK500v1 {
 			//Programming of page was successful. Increment counter and program next page
 			if (programPageSuccess) {
 				hexPosition+=bytesOnLine;
-				
+
 				// Calculate progress
 				progress = (double)hexPosition/(double)hexLength;
 				if(checkWrittenData) progress *= 50;
 				else progress *= 100;
 				logger.logcat("progress: " + getProgress() + " %", "d");
-				
+
 				continue;
 			}
 			//Programming was unsuccessful. Try again without incrementing
@@ -1551,7 +1642,7 @@ public class STK500v1 {
 		}
 		logger.logcat("uploadFile: End of file. "+
 				"Upload finished with success.", "d");
-		
+
 		// Read bytes from arduino to verify written data
 		if(checkWrittenData) {
 			if (readWrittenBytes(bytesToLoad, false)) {
@@ -1685,12 +1776,12 @@ public class STK500v1 {
 	 * Standard timeout values for how long to wait for reading results.
 	 */
 	private enum TimeoutValues{
-		DEFAULT(30),
-		CONNECT(30),
-		READ(30),
-		SHORT_READ(30),
-		RESTART(30),
-		WRITE(30);
+		DEFAULT(800),
+		CONNECT(1000),
+		READ(800),
+		SHORT_READ(800),
+		RESTART(800),
+		WRITE(75);
 
 		private final long timeout;
 
@@ -1707,7 +1798,7 @@ public class STK500v1 {
 			return timeout;
 		}
 	}
-	
+
 	/**
 	 * Return progress of programming as integer, 0 - 100.
 	 * If verification is enabled, writing goes from 0-50 and reading continues to 100.
@@ -1717,7 +1808,7 @@ public class STK500v1 {
 	public int getProgress() {
 		return (int)progress;
 	}
-	
+
 	/**
 	 * Verify input.
 	 * @param bytesToLoad Number of bytes to read, must be 16^n value
@@ -1734,7 +1825,7 @@ public class STK500v1 {
 		}
 		return true;
 	}
-	
+
 	/**States for the service to check. Can also improve flow control in protocol**/
 	public enum ProtocolState {
 		/**The programmer is parsing the hex file and starting the read wrapper**/
