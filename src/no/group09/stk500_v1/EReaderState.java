@@ -1,37 +1,33 @@
 package no.group09.stk500_v1;
 
 public enum EReaderState {
-	/**Not yet started. Go to reading**/
+	/**Not yet started. Go to WAITING**/
 	STARTING,
-	/**Ready for requests. Go to reading or terminate the entire thing**/
+	/**Ready for requests. Go to READING, or STOPPING**/
 	WAITING,
 	
-	/**IO in progress - can go to ResultReady or RequestCancelled**/
+	/**IO in progress - can go to RESULT_READY or TIMEOUT_OCCURRED**/
 	READING,
 	
-	/**result ready - goes to Waiting after result is retrieved**/
+	/**Result ready - goes to WAITING after the result has been retrieved**/
 	RESULT_READY,
 	
 	/**
-	 * Caller no longer interested in result. Goes to REQUEST_CANCELLED_RESULT_READY
-	 * if the reader returns something before a new request is received, or to
-	 * READING_CONTINUED if a new request is received before that.  
+	 * A timeout occurred while reading.  
 	 */
-	REQUEST_CANCELLED,
+	TIMEOUT_OCCURRED,
 	
 	/**
 	 * Caller not waiting for result, but something was received. Decide whether to
 	 * accept the newly received data or not as a result based on a previously
 	 * selected policy. Never accepted if different buffer sizes are used.
 	 **/
-	REQUEST_CANCELLED_RESULT_READY,
+	TIMEOUT_OCCURRED_RESULT_READY,
 	
 	/**
-	 * A request had been cancelled but a response never came before an identical
-	 * request arrived. Let the reader continue to read (there's no sane way to
-	 * stop it reliably, so attempts to use different buffer sizes may cause issues).
-	 **/
-	READING_CONTINUED,
+	 * 
+	 */
+	TIMEOUT_OCCURED_NEW_REQUEST,
 	
 	/**
 	 * Termination requested

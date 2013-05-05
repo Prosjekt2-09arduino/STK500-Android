@@ -1828,32 +1828,7 @@ public class STK500v1 {
 		return readWrapper.getResult();
 	}
 
-	/**
-	 * Standard timeout values for how long to wait for reading results.
-	 */
-	private enum TimeoutValues{
-		DEFAULT(450),
-		CONNECT(450),
-		READ(800),
-		SHORT_READ(800),
-		RESTART(800),
-		WRITE(75);
-
-		private final long timeout;
-
-		private TimeoutValues(long t)
-		{
-			timeout = t;
-		}
-
-		/**
-		 * Get the milliseconds assigned to the timeout
-		 * @return timeout as a long in milliseconds
-		 */
-		public long getTimeout() {
-			return timeout;
-		}
-	}
+	
 
 	/**
 	 * Return progress of programming as integer, 0 - 100.
