@@ -4,6 +4,10 @@ import java.io.IOException;
 import java.util.concurrent.TimeoutException;
 
 public interface IReader {
+	public static final int RESULT_END_OF_STREAM = -1;
+	public static final int RESULT_NOT_DONE = -2;
+	public static final int TIMEOUT_BYTE_RECEIVED = -3;
+	
 	/**Get the state of the reader**/
 	public EReaderState getState();
 	
@@ -17,7 +21,7 @@ public interface IReader {
 	 */
 	public int getResult();
 	
-	public int read() throws TimeoutException, IOException;
+	public int read(TimeoutValues timeout) throws TimeoutException, IOException;
 	
 	/**Stop the reader**/
 	public void stop();

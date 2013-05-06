@@ -9,25 +9,19 @@ public enum EReaderState {
 	/**IO in progress - can go to RESULT_READY or TIMEOUT_OCCURRED**/
 	READING,
 	
-	/**Result ready - goes to WAITING after the result has been retrieved**/
+	/**
+	 * Result ready - goes to WAITING after the result has been retrieved using
+	 * getResult().
+	 */
 	RESULT_READY,
 	
 	/**
-	 * A timeout occurred while reading.  
+	 * A timeout occurred while reading. Call forget on this state after spamming
+	 * requests to regain communications to ignore the eventual responses. Any response
+	 * at all will set the TIMEOUT_BYTE_RECEIVED to be returned by getResult().
+	 * When that byte is returned, the state will switch back to waiting.
 	 */
 	TIMEOUT_OCCURRED,
-	
-	/**
-	 * Caller not waiting for result, but something was received. Decide whether to
-	 * accept the newly received data or not as a result based on a previously
-	 * selected policy. Never accepted if different buffer sizes are used.
-	 **/
-	TIMEOUT_OCCURRED_RESULT_READY,
-	
-	/**
-	 * 
-	 */
-	TIMEOUT_OCCURED_NEW_REQUEST,
 	
 	/**
 	 * Termination requested

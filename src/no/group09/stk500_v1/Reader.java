@@ -15,8 +15,7 @@ public class Reader implements Runnable, IReader {
 	private EnumMap<EReaderState, IReaderState> states;
 	
 	private int result;
-	private static final int RESULT_NOT_DONE = -2;
-	private static final int RESULT_END_OF_STREAM = -1;
+
 	
 
 	public Reader(InputStream input, Logger logger) {
@@ -54,7 +53,14 @@ public class Reader implements Runnable, IReader {
 				state = new ResultReadyState(this, eState);
 				break;
 			}
-			
+			case TIMEOUT_OCCURRED : {
+				state = new TimeoutOccurredState(this, eState);
+				break;
+			}
+			case FAIL : {
+				state = new FailureState(this, eState);
+				break;
+			}
 			case STOPPING : {
 				state = new ResultReadyState(this, eState);
 				break;
@@ -68,6 +74,7 @@ public class Reader implements Runnable, IReader {
 			states.put(eState, state);
 		}
 		currentState = states.get(EReaderState.STOPPED);
+		switchTo = EReaderState.STOPPED;
 		logger.logcat("Reader constructor: Done", "i");
 	}
 
@@ -94,8 +101,8 @@ public class Reader implements Runnable, IReader {
 	}
 
 	@Override
-	public int read() throws TimeoutException, IOException {
-		return ((IReader)currentState).read();
+	public int read(TimeoutValues timeout) throws TimeoutException, IOException {
+		return ((IReader)currentState).read(timeout);
 	}
 
 	@Override
@@ -171,13 +178,13 @@ public class Reader implements Runnable, IReader {
 		}
 
 		@Override
-		public int read() throws TimeoutException, IOException {
-			return Integer.MAX_VALUE;
+		public int read(TimeoutValues timeout) throws TimeoutException, IOException {
+			return RESULT_NOT_DONE;
 		}
 
 		@Override
 		public int getResult() {
-			return Integer.MAX_VALUE;
+			return RESULT_NOT_DONE;
 		}
 
 		@Override
@@ -285,6 +292,8 @@ public class Reader implements Runnable, IReader {
 				logger.logcat("WaitingState.forget: Skipped " + skipped + " bytes", "d");
 			} catch (IOException e) {
 				logger.logcat("WaitingState.forget: " + e.getMessage(), "i");
+				lastException = e;
+				triggerSwitch(EReaderState.FAIL);
 			}
 		}
 		
@@ -294,7 +303,7 @@ public class Reader implements Runnable, IReader {
 		}
 		
 		@Override
-		public int read() throws TimeoutException, IOException {
+		public int read(TimeoutValues timeout) throws TimeoutException, IOException {
 			triggerSwitch(EReaderState.READING);
 			while (true) {
 				EReaderState s = currentState.getEnum();
@@ -438,7 +447,9 @@ public class Reader implements Runnable, IReader {
 	}
 	
 	class TimeoutOccurredState extends BaseState {
-		private boolean reading;
+		private volatile boolean readInProgress;
+		private volatile boolean forgetInProgress;
+		private volatile boolean receivedSomething;
 
 		public TimeoutOccurredState(Reader reader, EReaderState eState) {
 			super(reader, eState);
@@ -446,52 +457,152 @@ public class Reader implements Runnable, IReader {
 
 		@Override
 		public void execute() {
-			// TODO Auto-generated method stub
 			super.execute();
+			int skippableBytes = 0;
+			//only run while ready
+			if (!forgetInProgress && !readInProgress && !receivedSomething) {
+				try {
+					//see estimate of skippable bytes (should be number of buffered and 
+					//those in the socket receiver buffer)
+					skippableBytes = bis.available();
+					logger.logcat(this.getClass() + ".execute: " + skippableBytes +
+							" possible to skip.", "i");
+					if (skippableBytes > 0) {
+						receivedSomething = true;
+					}
+				} catch (IOException e) {
+					lastException = e;
+					triggerSwitch(EReaderState.FAIL);
+				}
+			}
 		}
 
 		@Override
 		public boolean isReadingAllowed() {
-			// TODO Auto-generated method stub
-			return super.isReadingAllowed();
+			//return (!readInProgress && !forgetInProgress);
+			return false;
 		}
 
 		@Override
-		public int read() throws TimeoutException, IOException {
-			// TODO Auto-generated method stub
-			return super.read();
+		public int read(TimeoutValues timeout) throws TimeoutException, IOException {
+			if (!isReadingAllowed()) {
+				throw new IllegalStateException("Reading not allowed while reading or " +
+						"forgetting!");
+			}
+			return super.read(timeout);
 		}
 
 		@Override
 		public int getResult() {
-			// TODO Auto-generated method stub
-			return super.getResult();
+			if (receivedSomething) {
+				triggerSwitch(EReaderState.WAITING);
+				return TIMEOUT_BYTE_RECEIVED;
+			}
+			return RESULT_NOT_DONE;
 		}
 
 		@Override
 		public void forget() {
-			if (reading) {
-				return;
+			if (readInProgress || forgetInProgress) {
+				throw new IllegalStateException("Can't start forget process while " +
+						"already reading or forgetting");
 			}
-			//TODO: Something like in WaitingState
+			forgetInProgress = true;
+			int toSkip;
+			try {
+				toSkip = bis.available();
+				logger.logcat("TimeoutOccurred.forget: Attempts to skip " + toSkip +
+						" bytes...", "d");
+				long skipped = bis.skip(toSkip);
+				logger.logcat("TimeoutOccurred.forget: Skipped " + skipped + " bytes",
+						"d");
+			} catch (IOException e) {
+				logger.logcat("TimeoutOccurred.forget: " + e.getMessage(), "i");
+				lastException = e;
+				triggerSwitch(EReaderState.FAIL);
+			}
+			finally {
+				forgetInProgress = false;
+			}
 		}
 
 
 		@Override
 		public void activate() {
-			reading = false;
+			readInProgress = false;
+			forgetInProgress = false;
+			receivedSomething = false;
+			int avail = 0;
+			try {
+				avail = bis.available();
+				if (avail > 0) {
+					logger.logcat(this.getClass() + ".activate: " + avail + "unread " +
+							"bytes already in the buffer!", "w");
+					//ignore the byte(s)
+					forget();
+				}
+			} catch (IOException e) {
+				lastException = e;
+				triggerSwitch(EReaderState.FAIL);
+			}
 		}
 
 		@Override
 		public void stop() {
-			// TODO Auto-generated method stub
-			
+			logger.logcat("TimeoutOccurredState.stop: Stopping... Might take a while " +
+					"if blocking operations are in progress", "i");
+			triggerSwitch(EReaderState.STOPPING);
 		}
 
 		@Override
 		public void start() {
-			// TODO Auto-generated method stub
-			
+			logger.logcat("TimeoutOccurredState.start: Already running", "i");
+		}
+		
+	}
+	
+	class FailureState extends BaseState {
+
+		public FailureState(Reader reader, EReaderState eState) {
+			super(reader, eState);
+		}
+
+		@Override
+		public void activate() {
+			logger.logcat(this.getClass() + ".activate: Reader failed!", "e");
+		}
+		
+		@Override
+		public void execute() {
+			super.execute();
+			active = false;
+		}
+
+		@Override
+		public int getResult() {
+			if (lastException != null) {
+				if (lastException instanceof IOException) {
+					//if an IOException was encountered outside of read().
+					throw new RuntimeException(lastException);
+				} else {
+					throw new RuntimeException("Unexpected exception of type " +
+							lastException.getClass(), lastException);
+				}
+			} else {
+				throw new RuntimeException("An Unknown problem occured!");
+			}
+		}
+
+		@Override
+		public void stop() {
+			triggerSwitch(EReaderState.STOPPING);
+			logger.logcat(this.getClass() + ".stop: Stopping...", "i");
+		}
+
+		@Override
+		public void start() {
+			logger.logcat(this.getClass() + ".start: Already running, though currently" +
+					" in a failure state.", "i");
 		}
 		
 	}
