@@ -23,9 +23,7 @@ public class STK500v1 {
 	private OutputStream output;
 	private InputStream input;
 	private Logger logger;
-	private ReadWrapper readWrapper;
-	private ReadWrapper readWrapperBackup;
-	private Thread readWrapperThread;
+	private IReader reader;
 	/**Used to prevent stack overflow**/
 	private int syncStack = 0;
 	private int programPageTries = 0;
@@ -51,13 +49,14 @@ public class STK500v1 {
 		this.logger = log;
 		logger.logcat("STKv1 constructor: Initializing protocol code", "v");
 
-		readWrapper = new ReadWrapper(input, log);
-		readWrapperThread = new Thread(readWrapper);
-
-		readWrapperThread.start();
-		while (!readWrapper.checkIfStarted());
-		readWrapperBackup = new ReadWrapper(input, log);
-		new Thread(readWrapperBackup).start();
+		reader = new Reader(input, logger);
+		new Thread((Runnable) reader).start();
+		reader.start();
+		while(reader.getState() != EReaderState.WAITING) {
+			try {
+				Thread.sleep(2);
+			} catch (InterruptedException e) {}
+		}
 
 		logger.logcat("STKv1 constructor: ReadWrapper should be started now", "v");
 		state = ProtocolState.READY;
@@ -80,9 +79,10 @@ public class STK500v1 {
 		for (int i = 0; i < 10; i++) { 
 			partialRecovery = false;
 			if (spamSync()) {
-				readWrapperBackup = new ReadWrapper(input, logger);
-				new Thread(readWrapperBackup).start();
 				partialRecovery = true;
+				while (reader.getState() != EReaderState.WAITING) {}
+				//ignore bytes received from spamming (or even older ones)
+				reader.forget();
 				try {
 					synchronized(this){
 						wait(5);
@@ -99,62 +99,28 @@ public class STK500v1 {
 				}
 			} else {
 				logger.logcat("recover: Unable to regain comms", "i");
+				restartReader();
 				break;
 			}
 		}
 	}
 
+	private void restartReader() {
+		reader.stop();
+		while (reader.getState() != EReaderState.STOPPED) {}
+		reader.start();
+		while (reader.getState() != EReaderState.WAITING) {}
+	}
+
 	public boolean spamSync() {
 		byte[] command = {ConstantsStk500v1.STK_GET_SYNC, ConstantsStk500v1.CRC_EOP};
 		logger.logcat("spamSync: sending commands", "d");
-		ReadWrapper readWrapper = this.readWrapper;
 		for (int i = 0; i < 500; i++) {
-			if (readWrapper.canAcceptWork()) {
-				int lateByte = readWrapper.getLateByte();
-				logger.logcat("SpamSync: Late byte: " + lateByte, "i");
-				//HACK test
-				if (lateByte != -1 && (byte) lateByte == ConstantsStk500v1.STK_INSYNC) {
-					readWrapper = readWrapperBackup;
-
-					if (readWrapper.requestReadByte()){
-						long time = System.currentTimeMillis();
-						while(!readWrapper.isDone()) {
-							if ((System.currentTimeMillis() - time) > TimeoutValues.CONNECT.getTimeout()) {
-								logger.logcat("SpamSync: read timed out", "i");
-								readWrapper.cancelRequest();
-								return false;
-							}
-							if (readWrapper.checkIfFailed()) {
-								logger.logcat("SpamSync: readwrapper checkiffailed returned true", "i");
-								return false;
-							}
-						}
-						int result = readWrapper.getResult();
-						if (result != -1 && (byte)result == ConstantsStk500v1.STK_OK) {
-							logger.logcat("SpamSync: received OK", "i");
-							this.readWrapper = readWrapper;
-							return true;
-						}
-						result = decodeByte((byte) result);
-						logger.logcat("SpamSync: didnt receive OK. Got: " +
-								Hex.oneByteToHex((byte)result), "i");
-						return false;
-					}
-				} else if ((byte)lateByte == ConstantsStk500v1.STK_NOSYNC) {
-					logger.logcat("SpamSync: Received NOSYNC", "i");
-					//good enough for this method, getSynchronization will be run afterwards
+			if (reader.getState() == EReaderState.TIMEOUT_OCCURRED) {
+				if (reader.getResult() == IReader.TIMEOUT_BYTE_RECEIVED) {
+					logger.logcat("SpamSync: Returning true", "i");
 					return true;
-				} else {
-
-					lateByte = decodeByte((byte) lateByte);
-					logger.logcat("SpamSync: didnt receive INSYNC. Got: " +
-							Hex.oneByteToHex((byte)lateByte), "i");
-
 				}
-				//
-
-				logger.logcat("SpamSync: Returning true", "i");
-				return true;
 			}
 			try {
 				output.write(command);
@@ -163,7 +129,7 @@ public class STK500v1 {
 				return false;
 			}
 			try {
-				Thread.sleep(10);
+				Thread.sleep(5);
 			} catch (InterruptedException e) {}
 		}
 		logger.logcat("SpamSync: unable to recover. Returning false", "i");
@@ -392,7 +358,7 @@ public class STK500v1 {
 		
 		state = ProtocolState.ERROR_CONNECT;
 		logger.logcat("programUsingOptiboot: Unable to reset and sync!", "i");
-		stopReadWrapper();
+		reader.stop();
 		return false;
 	}
 
@@ -423,66 +389,6 @@ public class STK500v1 {
 
 		// We don't get any result back from arduino, so we assume it's OK
 		logger.logcat("softReset: Restarting arduino...", "w");
-		return true;
-	}
-
-	/**
-	 * Attempts to stop the read wrapper
-	 */
-	public void stopReadWrapper() {
-		readWrapper.terminate();
-		byte[] command = {ConstantsStk500v1.STK_GET_SYNC, ConstantsStk500v1.CRC_EOP};
-		long time = System.currentTimeMillis();
-		while(readWrapperThread.isAlive()) {
-			if (System.currentTimeMillis() - time >= 2500) {
-				logger.logcat("StopReadWrapper: Took too long to stop, give up.", "i");
-				return;
-			}
-						try {
-							output.write(command);
-							Thread.sleep(10);
-						} catch (InterruptedException e) {
-						} catch (IOException e) {
-							logger.logcat("StopReadWrapper: Can't send.\n" + e.getMessage(), "d");
-						}
-		}
-	}
-
-	/**
-	 * Starts the wrapper if it isn't running already.
-	 * @return true if it could be started.
-	 */
-	public synchronized boolean recreateWrapper() {
-		if (isReadWrapperRunning()) {
-			logger.logcat("recreateWrapper: The wrapper is already running and cannot " +
-					"be started.","d");
-			return false;
-		}
-		readWrapper = new ReadWrapper(input, logger);
-		readWrapperThread = new Thread(readWrapper);
-
-		readWrapperThread.start();
-		while (!readWrapper.checkIfStarted());
-
-		logger.logcat("recreateWrapper: ReadWrapper should be started now", "v");
-		return true;
-	}
-
-	/**
-	 * Check if the read wrapper is running
-	 * @return true if it is
-	 */
-	public synchronized boolean isReadWrapperRunning() {
-		if (readWrapper == null || readWrapperThread == null) {
-			return false;
-		}
-		if (!readWrapperThread.isAlive()) {
-			return false;
-		}
-		if (!readWrapper.checkIfStarted()) {
-			logger.logcat("Wrapper thread running,  but not yet initialized fully", "i");
-			return false;
-		}
 		return true;
 	}
 
@@ -673,6 +579,9 @@ public class STK500v1 {
 		} catch (TimeoutException e) {
 			logger.logcat("checkIfStarterKitPresent: Timeout in checkIfStarterkitPresent!", "w");
 			recover();
+		} catch (IOException e) {
+			logger.logcat("checkIfStarterKitPreset: Unable to read!", "e");
+			return version;
 		}
 
 		return version;
@@ -880,6 +789,9 @@ public class STK500v1 {
 			return false;
 		} catch (TimeoutException e) {
 			logger.logcat("readPage: Unable to read", "w");
+			return false;
+		} catch (IOException e) {
+			logger.logcat("readPage: Problem reading! " + e.getMessage(), "e");
 			return false;
 		}
 	}
@@ -1208,7 +1120,10 @@ public class STK500v1 {
 			logger.logcat("readPage: Something went wrong...", "w");
 			return null;
 		} catch (TimeoutException e) {
-			logger.logcat("readPage: Unable to read", "w");
+			logger.logcat("readPage: Unable to read! " + e.getMessage(), "w");
+			return null;
+		} catch (IOException e) {
+			logger.logcat("readPage: Unable to read! " + e.getMessage(), "w");
 			return null;
 		}
 	}
@@ -1506,6 +1421,9 @@ public class STK500v1 {
 				recover();
 			}
 			return false;
+		} catch (IOException e) {
+			logger.logcat("checkInput: Can't read! " + e.getMessage(), "w");
+			return false;
 		}
 	}
 
@@ -1773,8 +1691,9 @@ public class STK500v1 {
 	 * timeout length.
 	 * @return -1 if end of stream encountered, otherwise 0-255
 	 * @throws TimeoutException 
+	 * @throws IOException 
 	 */
-	private int read(TimeoutValues timeout) throws TimeoutException {
+	private int read(TimeoutValues timeout) throws TimeoutException, IOException {
 		return read(null, timeout);
 	}
 
@@ -1789,43 +1708,14 @@ public class STK500v1 {
 	 * @return -1 if end of stream encountered, otherwise the number of bytes read
 	 * for a non null buffer, or the value of the single byte.
 	 * @throws TimeoutException 
+	 * @throws IOException 
 	 */
-	private int read(byte[] buffer, TimeoutValues timeout) throws TimeoutException {
-		long now = System.currentTimeMillis();
-		if (!readWrapper.canAcceptWork()) {
-			logger.logcat("read: Readwrapper wasn't ready to accept work", "v");
-			return -1;
+	private int read(byte[] buffer, TimeoutValues timeout) throws TimeoutException,
+			IOException {
+		if (reader.getState() == EReaderState.WAITING) {
+			return reader.read(timeout);
 		}
-		boolean accepted;
-
-		//Check if single or buffered reading should be used
-		if(buffer!=null) {
-			logger.logcat("read: Buffer not null", "v");
-			accepted = readWrapper.requestReadIntoBuffer(buffer);
-		}
-		else {
-			accepted = readWrapper.requestReadByte();
-		}
-
-		if (!accepted) {
-			logger.logcat("read: Job not accepted by wrapper", "v");
-			return -1;
-		}
-		logger.logcat("read: Job accepted by wrapper", "v");
-		//ask if reading is done
-		while (!readWrapper.isDone()) {
-			if (System.currentTimeMillis() >= now + timeout.getTimeout()) {
-				if (readWrapper.checkIfFailed()) {
-					logger.logcat("read: The wrapper failed, probably IOException.", "w");
-					return -1;
-				}
-				logger.logcat("read: Timed out, cancelling request...", "w");
-				readWrapper.cancelRequest();
-				throw new TimeoutException("Reading timed out");
-			}
-		}
-		logger.logcat("read: Wrapper reported job as complete", "v");
-		return readWrapper.getResult();
+		return IReader.RESULT_NOT_DONE;
 	}
 
 	
