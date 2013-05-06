@@ -38,7 +38,7 @@ public class Reader implements Runnable, IReader {
 				break;
 			}
 			case STARTING : {
-				state = new StoppedState(this, eState);
+				state = new StartingState(this, eState);
 				break;
 			}
 			case WAITING : {
@@ -62,7 +62,7 @@ public class Reader implements Runnable, IReader {
 				break;
 			}
 			case STOPPING : {
-				state = new ResultReadyState(this, eState);
+				state = new StoppingState(this, eState);
 				break;
 			}
 			default : {
@@ -81,8 +81,8 @@ public class Reader implements Runnable, IReader {
 	private void switchState(EReaderState eState) {
 		IReaderState state = states.get(eState);
 		logger.logcat("Reader.switchState: Switched to " + state.getEnum(), "d");
+		((BaseState)currentState).activated = false;
 		currentState = state;
-		state.activate();
 	}
 	
 	@Override
@@ -130,25 +130,35 @@ public class Reader implements Runnable, IReader {
 		private EReaderState eState;
 		protected volatile boolean active;
 		protected Reader reader;
+		protected volatile boolean activated;
 
 		public BaseState(Reader reader, EReaderState eState) {
 			this.eState = eState;
-			active = true;
 			this.reader = reader;
+			active = true;
+			activated = false;
 		}
 
 		@Override
 		public void execute() {
+			if (!activated) {
+				activate();
+			}
 			if (eState != switchTo) {
+				logger.logcat(getEnum() + "(Base).execute: State switch required",
+						"v");
 				switchState(switchTo);
 				return;
 			}
 			if (!active) {
 				synchronized(this) {
 					try {
+						logger.logcat(getEnum() + "(Base).execute: waiting...", "v");
 						wait();
+						active = true;
 					} catch (InterruptedException e)
 					{
+						logger.logcat(getEnum() + "(Base).execute: woken up!", "v");
 						active = true;
 					}
 				}
@@ -214,6 +224,7 @@ public class Reader implements Runnable, IReader {
 
 		public void activate() {
 			logger.logcat("StoppedState.activate: The reader has stopped", "i");
+			activated = true;
 		}
 
 		@Override
@@ -232,11 +243,14 @@ public class Reader implements Runnable, IReader {
 
 		public StartingState(Reader reader, EReaderState eState) {
 			super(reader, eState);
+			active = true;
 		}
 
 		@Override
 		public void activate() {
 			logger.logcat("StartingState.activate: Starting...", "i");
+			activated = true;
+			active = true;
 			//TODO: Consider resetting fields
 		}
 		
@@ -269,6 +283,8 @@ public class Reader implements Runnable, IReader {
 		public void activate() {
 			logger.logcat("WaitingState.activate: Ready to work", "d");
 			lastException = null;
+			active = true;
+			activated = true;
 		}
 
 		@Override
@@ -310,7 +326,10 @@ public class Reader implements Runnable, IReader {
 				IReader state = (IReader)currentState;
 				switch (s) {
 				case RESULT_READY : {
-					return state.getResult();
+					int res = state.getResult();
+					logger.logcat(getEnum() + ".read: result: " + 
+							Hex.oneByteToHex((byte) res), "i");
+					return res;
 				}
 				case TIMEOUT_OCCURRED : {
 					throw new TimeoutException("Reader.read: Reading timed out!");
@@ -326,7 +345,13 @@ public class Reader implements Runnable, IReader {
 						}
 					}
 				}
-				case READING : {break;}
+				case READING : {} //intentional fall through
+				case WAITING : {
+					try {
+						Thread.sleep(1);
+					} catch (InterruptedException e) {}
+					break;
+				}
 				case STOPPED : {} //fall through to stopping
 				case STOPPING : {
 					logger.logcat("Reader.read: Terminated by request while reading!",
@@ -359,6 +384,8 @@ public class Reader implements Runnable, IReader {
 				result = RESULT_NOT_DONE;
 			}
 			readInitiated = System.currentTimeMillis();
+			active = true;
+			activated = true;
 		}
 		
 		@Override
@@ -422,6 +449,7 @@ public class Reader implements Runnable, IReader {
 		@Override
 		public void activate() {
 			logger.logcat("ResultReadyState.activate: result arrived!", "d");
+			activated = true;
 		}
 
 		@Override
@@ -441,7 +469,7 @@ public class Reader implements Runnable, IReader {
 
 		@Override
 		public void start() {
-			logger.logcat("" + this.getClass() + ".start: Already running...", "i");
+			logger.logcat("" + getEnum() + ".start: Already running...", "i");
 		}
 		
 	}
@@ -465,7 +493,7 @@ public class Reader implements Runnable, IReader {
 					//see estimate of skippable bytes (should be number of buffered and 
 					//those in the socket receiver buffer)
 					skippableBytes = bis.available();
-					logger.logcat(this.getClass() + ".execute: " + skippableBytes +
+					logger.logcat(getEnum() + ".execute: " + skippableBytes +
 							" possible to skip.", "i");
 					if (skippableBytes > 0) {
 						receivedSomething = true;
@@ -536,7 +564,7 @@ public class Reader implements Runnable, IReader {
 			try {
 				avail = bis.available();
 				if (avail > 0) {
-					logger.logcat(this.getClass() + ".activate: " + avail + "unread " +
+					logger.logcat(getEnum() + ".activate: " + avail + "unread " +
 							"bytes already in the buffer!", "w");
 					//ignore the byte(s)
 					forget();
@@ -545,6 +573,8 @@ public class Reader implements Runnable, IReader {
 				lastException = e;
 				triggerSwitch(EReaderState.FAIL);
 			}
+			active = true;
+			activated = true;
 		}
 
 		@Override
@@ -569,7 +599,8 @@ public class Reader implements Runnable, IReader {
 
 		@Override
 		public void activate() {
-			logger.logcat(this.getClass() + ".activate: Reader failed!", "e");
+			logger.logcat(getEnum() + ".activate: Reader failed!", "e");
+			activated = true;
 		}
 		
 		@Override
@@ -596,12 +627,12 @@ public class Reader implements Runnable, IReader {
 		@Override
 		public void stop() {
 			triggerSwitch(EReaderState.STOPPING);
-			logger.logcat(this.getClass() + ".stop: Stopping...", "i");
+			logger.logcat(getEnum() + ".stop: Stopping...", "i");
 		}
 
 		@Override
 		public void start() {
-			logger.logcat(this.getClass() + ".start: Already running, though currently" +
+			logger.logcat(getEnum() + ".start: Already running, though currently" +
 					" in a failure state.", "i");
 		}
 		
@@ -616,6 +647,8 @@ public class Reader implements Runnable, IReader {
 		@Override
 		public void activate() {
 			logger.logcat("StoppingState.activate: Shutdown in progress...", "i");
+			active = true;
+			activated = true;
 		}
 
 		@Override
