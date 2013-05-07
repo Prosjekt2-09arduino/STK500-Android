@@ -27,7 +27,7 @@ public class STK500v1 {
 	private Thread readWrapperThread;
 	/**Used to prevent stack overflow**/
 	private int syncStack = 0;
-	private int programPageTries = 0;
+	private int uploadFileTries = 0;
 	private volatile double progress = 0;
 	private volatile ProtocolState state;
 	/** Used to interact with the binary file */
@@ -1454,23 +1454,25 @@ public class STK500v1 {
 	private boolean hardwareReset() {
 		logger.logcat("hardwareReset: Trying to reset arduino...", "d");
 		
-		try {
-			// Disconnect
-			input.close();
-			output.close();
-			
-			// Sleep
-			Thread.sleep(2000);
-			
-			// Reconnect
-			//TODO: Add reconnect
-		
-		//TODO: Log if any exceptions occurs
-		} catch (IOException e) {
-		} catch (InterruptedException e) {
-		}
+//		try {
+//			// Disconnect
+//			input.close();
+//			output.close();
+//			
+//			// Sleep
+//			Thread.sleep(2000);
+//			
+//			// Reconnect
+//			//TODO: Add reconnect
+//		
+//		//TODO: Log if any exceptions occurs
+//		} catch (IOException e) {
+//		} catch (InterruptedException e) {
+//		}
 		
 		// Reconnect
+		
+		uploadFileTries++;
 		
 		return true;
 	}
@@ -1487,6 +1489,7 @@ public class STK500v1 {
 	 */
 	private boolean writeAndReadFile(boolean checkWrittenData, int bytesToLoad) {
 		progress = 0;
+		uploadFileTries = 0;
 		if(checkWrittenData) readWrittenPage = true;
 		else readWrittenPage = false;
 		
@@ -1527,6 +1530,9 @@ public class STK500v1 {
 
 		//Run through the entire hex file, ignoring the last line
 		while (hexPosition < hexParser.getDataSize()) {
+			// Give up...
+			if(uploadFileTries>10) return false;
+			
 			// Get bytes from hex file
 			byte[] tempArray = hexParser.getHexLine(hexPosition, bytesToLoad);
 			
@@ -1552,6 +1558,7 @@ public class STK500v1 {
 					}
 					else if (timeoutOccurred) {
 						timeoutOccurred = false;
+						uploadFileTries++;
 					}
 				}
 			}
@@ -1567,7 +1574,11 @@ public class STK500v1 {
 					hexPosition+=tempArray.length;
 
 					// Calculate progress
-					progress = (double)hexPosition / (double)hexParser.getDataSize();
+					double tempProgress = (double)hexPosition / (double)hexParser.getDataSize();
+					
+					if(readWrittenPage) progress = tempProgress*50;
+					else progress = tempProgress*100;
+					
 					logger.logcat("progress: " + getProgress() + " % " +
 							hexPosition + " / " + hexParser.getDataSize(), "d");
 				}
@@ -1586,7 +1597,8 @@ public class STK500v1 {
 					// Calculate progress
 					logger.logcat("hexPosition: " + hexPosition +
 							", hexParser.getDataSize(): " + hexParser.getDataSize(), "d");
-					progress = (double)hexPosition / (double)hexParser.getDataSize();
+					progress = (double)hexPosition / (double)hexParser.getDataSize() + 50;
+					
 					logger.logcat("progress: " + getProgress() + " % ", "d");
 				}
 				else {
@@ -1604,6 +1616,7 @@ public class STK500v1 {
 				}
 				else if (timeoutOccurred) {
 					timeoutOccurred = false;
+					uploadFileTries++;
 					continue;
 				}
 				
@@ -1795,12 +1808,7 @@ public class STK500v1 {
 	 * @return progress
 	 */
 	public int getProgress() {
-		if(readWrittenPage) {
-			return (int)(progress*100);
-		}
-		else {
-			return (int)(progress*50);
-		}
+		return (int)progress;
 	}
 
 	/**States for the service to check. Can also improve flow control in protocol**/
