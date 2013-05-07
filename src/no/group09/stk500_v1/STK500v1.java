@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -37,6 +36,8 @@ public class STK500v1 {
 	private boolean timeoutOccurred = false;
 	/** Flag used to mark successful timeout recovery */
 	private boolean recoverySuccessful = false;
+	
+	private boolean readWrittenPage = false;
 
 	private ArrayList<Long> statistics;
 	private boolean partialRecovery;
@@ -200,8 +201,8 @@ public class STK500v1 {
 	 * 
 	 * @param checkWrittenData Verify data after the write process. Recommended
 	 * value is true, but to speed things up this can be skipped.
-	 * @param numberOfBytes Number of bytes to write and read at once. Valid
-	 * input is 16, 32, 64, 128 and 256. Recommended value is 128.
+	 * @param numberOfBytes Number of bytes to write and read at once.
+	 * Recommended value is 128.
 	 * 
 	 * @return True if the arduino was programmed. If returning false it is
 	 * recommended to run this again or verify written data by using readWrittenBytes 
@@ -290,7 +291,7 @@ public class STK500v1 {
 
 					//Upload and verify uploaded bytes.
 					statistics = new ArrayList<Long>();
-					if (uploadFile(checkWrittenData, numberOfBytes)){
+					if (writeAndReadFile(checkWrittenData, numberOfBytes)){
 						logger.logcat("programUsingOptiboot: program successful", "d");
 					} else {
 						//Write and collect statistics from writing
@@ -562,7 +563,7 @@ public class STK500v1 {
 			for (int i = 0; i < totalBytesToWrite/bytesToWrite && errorCount < 10; i++) {
 				highLow = packTwoBytes(i * bytesToWrite);
 				if (loadAddress(highLow[0], highLow[1])) {
-					if (programPage(lengthHigh, lengthLow, true, data)) {
+					if (programPage(true, data)) {
 						errorCount = 0;
 						linesWritten++;
 						continue;
@@ -941,7 +942,8 @@ public class STK500v1 {
 
 		logger.logcat("loadAddress: Sending bytes to load address: " + 
 				Hex.bytesToHex(loadAddr), "d");
-		logger.logcat("loadAddress: Memory address to load: " + address, "d");
+		logger.logcat("loadAddress: Memory address to load: " + address +
+				" (" + (address/2) + ")", "d");
 		try {
 			output.write(loadAddr);
 		} catch (IOException e) {
@@ -1024,8 +1026,6 @@ public class STK500v1 {
 	 * than 256 bytes. bytes_high and bytes_low
 	 * are part of an integer that describes the address to be written/read
 	 * 
-	 * @param bytes_high most significant byte of the address
-	 * @param bytes_low least significant byte of the address
 	 * @param writeFlash boolean indicating if it should be written to flash
 	 * memory or EEPROM. True = flash. False = EEPROM. Writing to EEPROM is not
 	 * supported by optiboot
@@ -1033,31 +1033,30 @@ public class STK500v1 {
 	 * 
 	 * @return true if response is STK_INSYNC and STK_OK, false if not.
 	 */
-	private boolean programPage(byte bytes_high, byte bytes_low, boolean writeFlash, byte[] data) {
+	private boolean programPage(boolean writeFlash, byte[] data) {
 		//		try {
 		//			Thread.sleep(SLEEP_DELAY);
 		//		} catch (InterruptedException e1) {
 		//			// TODO Auto-generated catch block
 		//			e1.printStackTrace();
 		//		}
-
+		
 		byte[] programPage = new byte[5+data.length];
 		byte memtype;
 
 		programPage[0] = ConstantsStk500v1.STK_PROG_PAGE;
-
+				
+		programPage[1] = (byte) ((data.length >> 8) & 0xFF);
+		programPage[2] = (byte) (data.length & 0xFF);
+		
 		// Write flash
 		if (writeFlash) {
 			memtype = (byte)'F';
-			programPage[1] = bytes_high;
-			programPage[2] = bytes_low;
 		}
 		// Write EEPROM
 		// This is not implemented in optiboot
 		else {
 			memtype = (byte)'E';
-			programPage[1] = bytes_high;
-			programPage[2] = bytes_low;
 		}
 		programPage[3] = memtype;
 
@@ -1211,106 +1210,6 @@ public class STK500v1 {
 			logger.logcat("readPage: Unable to read", "w");
 			return null;
 		}
-	}
-
-	/**
-	 * Check the data in hex file and compare it with read bytes on Arduino
-	 * 
-	 * @param bytesToLoad Number of bytes to read, must be 16^n value
-	 * @return true if read data is the same hex file
-	 */
-	public boolean readWrittenBytes() {
-		return readWrittenBytes(128, false);
-	}
-
-	/**
-	 * Check the data in hex file and compare it with read bytes on Arduino
-	 * 
-	 * @param bytesToLoad Number of bytes to read, must be 16^n value
-	 * @param progressStart If progress count should start on 0
-	 * 
-	 * @return true if read data is the same hex file
-	 */
-	private boolean readWrittenBytes(int bytesToLoad, boolean progressStart) {
-		state = ProtocolState.READING;
-		//Calculate progress
-		if(progressStart) progress = 0;
-		else progress = 50;
-
-		logger.logcat("progress: " + getProgress() + " %", "d");
-
-		// Check input
-		if(!checkReadWriteBytes(bytesToLoad)) return false;
-
-		//Parsing through the hex file to compare output
-		int x = 0;
-		int dataSize = 0;
-
-		while(x < hexParser.getLines()) {
-			int readLines = 0;
-
-			logger.logcat("readWrittenBytes: Resetting readPage datasize.", "v");
-			int loadErrors = 0;
-
-			//Load address
-			byte[] tempLoadAddress = hexParser.getLoadAddress(x); 
-			if(!loadAddress(tempLoadAddress[0],tempLoadAddress[1])) {
-				//			if(!loadAddress(x*(bytesToLoad/16)*2)) {
-				logger.logcat("readWrittenBytes: Could not load address...", "w");
-				if(loadErrors>3) {
-					logger.logcat("readWrittenBytes: Canceling reading...", "w");
-					break;
-				}
-				loadErrors++;
-				break;
-			}
-
-			//Find how many bytes to load
-			int numberOfLines = bytesToLoad/16;
-			dataSize = 0;
-
-			for(int y = 0; y < numberOfLines; y++) {
-				//Out of bounds, stop here
-				if(hexParser.getDataSizeOnLine(x) == -1) {
-					break;
-				}
-
-				readLines++;
-				dataSize += hexParser.getDataSizeOnLine(x);
-				logger.logcat("readWrittenBytes: New dataSize: " + dataSize + " line " + (x), "v");
-				x++;
-			}
-
-			logger.logcat("readWrittenBytes: Data size to read: " + dataSize, "d");
-
-			//readPage returns an empty array if it fails
-			byte readArray[] = readPage(dataSize, true);
-			if(readArray != null) { 
-				//				logger.logcat("readWrittenBytes: Read bytes: " + Hex.bytesToHex(readArray), "d");
-
-				//Compare read data and data on line x in the hex file
-				if(hexParser.checkBytesOnLine(x-readLines, readArray)) {
-					logger.logcat("readWrittenBytes: Verified line " + x + "!", "d");
-
-					// Calculate progress
-					if(progressStart) progress = (double)x / (double)hexParser.getLines() * 100;
-					else progress = (double)x / (double)hexParser.getLines() * 50 + 50;
-					logger.logcat("progress: " + getProgress() + " %", "d");
-				}
-				else {
-					logger.logcat("readWrittenBytes: Line " + x + " NOT verified!", "w");
-					//TODO: Consider to upload file again.
-					return false;
-				}
-			}
-			//Try again if readPage fails
-			else {
-				//TODO: Consider to read again. Can be done by running this method again
-				logger.logcat("readWrittenBytes: Failed to read line " + (x-7) + " - " + x, "w");
-				return false;
-			}
-		}
-		return true;
 	}
 
 
@@ -1546,100 +1445,108 @@ public class STK500v1 {
 			return false;
 		}
 	}
+	
+	/**
+	 * Reset the arduino with Hardware. Reconnect to trigger reset. 
+	 * 
+	 * @return True if the bluetooth connection was disconnected and reconnected.
+	 */
+	private boolean hardwareReset() {
+		logger.logcat("hardwareReset: Trying to reset arduino...", "d");
+		
+		try {
+			// Disconnect
+			input.close();
+			output.close();
+			
+			// Sleep
+			Thread.sleep(2000);
+			
+			// Reconnect
+			//TODO: Add reconnect
+		
+		//TODO: Log if any exceptions occurs
+		} catch (IOException e) {
+		} catch (InterruptedException e) {
+		}
+		
+		// Reconnect
+		
+		return true;
+	}
 
 	/**
-	 * Used to upload files to the flash memory. This method sends the content
-	 * of the binary byte array in pairs of two to the flash memory.
-	 * @param chipErase Use the standard chipErase method. False to use chipEraseUniversal
-	 * @param checkWrittenData Verify written bytes
-	 * @param bytesToLoad How many bytes to write at once
+	 * Used to upload and read files to the flash memory. This method sends
+	 * the content of the binary byte array in pairs of two to the flash memory.
+	 * Can also be used to read data and compare this to the hex file.
+	 * 
+	 * @param checkWrittenData Verify written bytes.
+	 * @param bytesToLoad How many bytes to write/read at once.
+	 * 
+	 * @return True if uploading and reading was successful.
 	 */
-	private boolean uploadFile(boolean checkWrittenData, int bytesToLoad) {
-		//FIXME: Fix bug to support more than 16 bytes writing / reading
-		//		bytesToLoad = 16;
-
+	private boolean writeAndReadFile(boolean checkWrittenData, int bytesToLoad) {
+		progress = 0;
+		if(checkWrittenData) readWrittenPage = true;
+		else readWrittenPage = false;
+		
+		boolean success = uploadFile(bytesToLoad, true);
+		
+		if(success && checkWrittenData) {
+			if(uploadFile(bytesToLoad, false)) {
+				success = true;
+			}
+		}
+		
+		return success;
+	}
+	
+	
+	/**
+	 * Used to upload and read files to the flash memory. This method sends
+	 * the content of the binary byte array in pairs of two to the flash memory.
+	 * Can also be used to read data and compare this to the hex file.
+	 * 
+	 * @param bytesToLoad How many bytes to write or read.
+	 * @param write If this method should write or read. True = write. 
+	 * 
+	 * @return True if everything was successful.
+	 */
+	private boolean uploadFile(int bytesToLoad, boolean write) {
 		// Calculate progress
 		state = ProtocolState.WRITING;//TODO: if Check checkReadWriteBytes and chipErase
 		//universal needs state updates after merging
-		progress = 0;
+		
 		logger.logcat("progress: " + getProgress() + " %", "d");
 
-		// Check input
-		if(!checkReadWriteBytes(bytesToLoad)) return false;
-
-		//Get the total length of the hex-file in number of lines.
-		int hexLength = hexParser.getLines();
-
-		logger.logcat("uploadFile: Length of hex file is " +
-				hexLength + " lines.", "d");
+		logger.logcat("uploadFile: Data bytes to write: " +
+				bytesToLoad, "d");
 
 		// Counter used to keep the position in the hex-file
 		int hexPosition = 0;
-		int readData;
 
 		//Run through the entire hex file, ignoring the last line
-		while (hexPosition < hexLength) {
-			readData = 0;
-
-			//loadAddress
-			if(programPageTries>3) {
-				logger.logcat("uploadFile: Could not write from line " +
-						hexPosition + " of " + hexLength, "w");
-				state = ProtocolState.ERROR_WRITE;
-				return false;
-			}
-
-			//How many lines from hex file should be combine.
-			//Always divide on 16 to get lines
-			int bytesOnLine = bytesToLoad/16;
-
-			byte[][] nextLine = new byte[bytesOnLine][];
-
-			//Fetch the next lines to be written from the hex-file and
-			//find the length of the data field
-			int dataLength = 0;
-
-			// Go through lines
-			for (int i = 0; i < bytesOnLine; i++) {
-				nextLine[i] = hexParser.getHexLine(hexPosition+i);
-				logger.logcat("uploadFile: hexParser: " + Hex.bytesToHex(nextLine[i]), "v");
-
-				dataLength += decodeByte(nextLine[i][0]);
-
-				if(nextLine[i] == null || nextLine[i][0] == 0) {
-					bytesOnLine = i+1;
-					logger.logcat("uploadFile: Empty line.", "d");
-					break;
-				}
-			}
-
-			//Byte array used to store data only
-			byte[] hexData = new byte[dataLength];
-
-			logger.logcat("uploadFile: dataLength: " + dataLength, "d");
-
-			//Store data from the next line in the hex-file in a separate array
-			//TODO: hexData[i + j*16] does not work when data bytes < 16!
-			for (int j = 0; j < bytesOnLine; j++) {
-				logger.logcat("Line: " + j + ", Data bytes: " + decodeByte(nextLine[j][0]), "d");
-				for (int i = 0; i < decodeByte(nextLine[j][0]); i++) {
-					try {
-						hexData[readData] = nextLine[j][i+3];
-						readData++;
-						//FIXME: Don't catch generic exceptions!! Add specific ones.
-					} catch (Exception e) {
-						logger.logcat("uploadFile: " + (i +j*16) + " " + (i+3), "d");
-						logger.logcat("uploadFile: " + e, "d");
-					}
-				}
+		while (hexPosition < hexParser.getDataSize()) {
+			// Get bytes from hex file
+			byte[] tempArray = hexParser.getHexLine(hexPosition, bytesToLoad);
+			
+			logger.logcat("uploadFile: " + hexPosition + ", " + bytesToLoad, "v");
+			logger.logcat("uploadFile: " + Hex.bytesToHex(tempArray), "v");
+			
+			// No more data bytes to load, return true
+			if(tempArray.length == 0) {
+				return true;
 			}
 
 			//Load address, 5 attempts
 			for (int j = 1; j < 5; j++) {
-				if(loadAddress(unPackTwoBytes(nextLine[0][1], nextLine[0][2]))) { 
+				if(loadAddress(hexPosition)) { 
 					logger.logcat("uploadFile: loadAddress OK after " + j + " attempts.", "v");
 					break;
 				} else {
+					// Trying to reset
+					if(hardwareReset()) continue;
+					
 					if (timeoutOccurred && !recoverySuccessful){
 						return false;
 					}
@@ -1648,66 +1555,92 @@ public class STK500v1 {
 					}
 				}
 			}
+			
+			boolean success = true;
+			
+			if(write) {
+				logger.logcat("uploadFile: Trying to write data.", "d");
+								
+				// Check if programming of page was successful.
+				// Increment counter and program next page
+				if (programPage(true, tempArray)) {
+					hexPosition+=tempArray.length;
 
-			byte[] byteSize = packTwoBytes(dataLength);
-
-			logger.logcat("uploadFile: Trying to write data from line " +
-					hexPosition + " from hex file.", "d");
-			boolean programPageSuccess = programPage(byteSize[0], byteSize[1], true, hexData);
-
-			//Programming of page was successful. Increment counter and program next page
-			if (programPageSuccess) {
-				hexPosition+=bytesOnLine;
-
-				// Calculate progress
-				progress = (double)hexPosition/(double)hexLength;
-				if(checkWrittenData) progress *= 50;
-				else progress *= 100;
-				logger.logcat("progress: " + getProgress() + " %", "d");
-
-				continue;
+					// Calculate progress
+					progress = (double)hexPosition / (double)hexParser.getDataSize();
+					logger.logcat("progress: " + getProgress() + " % " +
+							hexPosition + " / " + hexParser.getDataSize(), "d");
+				}
+				else {
+					success = false;
+				}
 			}
-			//Programming was unsuccessful. Try again without incrementing
 			else {
+				logger.logcat("uploadFile: Trying to read written data.", "d");
+				
+				// Check if reading of written data was successful.
+				// Increment counter and read next page
+				if(readPage(bytesToLoad, false) == tempArray) {
+					hexPosition+=tempArray.length;
+					
+					// Calculate progress
+					logger.logcat("hexPosition: " + hexPosition +
+							", hexParser.getDataSize(): " + hexParser.getDataSize(), "d");
+					progress = (double)hexPosition / (double)hexParser.getDataSize();
+					logger.logcat("progress: " + getProgress() + " % ", "d");
+				}
+				else {
+					success = false;
+				}
+			}
+			
+			//Programming was unsuccessful. Try again without incrementing
+			if(!success) {
 				if (timeoutOccurred && !recoverySuccessful) {
+					// Trying to reset
+					if(hardwareReset()) continue;
+					
 					return false;
 				}
 				else if (timeoutOccurred) {
 					timeoutOccurred = false;
+					continue;
 				}
-				programPageTries++;
-				int numberOfTries = 3;
-				for (int i = 0; i < numberOfTries; i++) {
-					logger.logcat("uploadFile: Line: " + hexPosition + ", Retry: " + i, "w");
-					if(loadAddress(nextLine[0][1], nextLine[0][2])) {
-						break;
-					}
-					else if (timeoutOccurred && !recoverySuccessful){
-						return false;
-					}
-					else if (timeoutOccurred) {
-						timeoutOccurred = false;
-					}
-					else if(i == numberOfTries - 1) {
-						logger.logcat("uploadFile: loadAddress failed!", "w");
-						state = ProtocolState.ERROR_WRITE;
-						return false;
-					}
-				}
+				
+//				//FIXME: Remove this?
+//				programPageTries++;
+//				
+//				int numberOfTries = 3;
+//				for (int i = 0; i < numberOfTries; i++) {
+//					logger.logcat("uploadFile: Line: " + hexPosition + ", Retry: " + i, "w");
+//					if(loadAddress(hexPosition)) {
+//						break;
+//					}
+//					else if (timeoutOccurred && !recoverySuccessful){
+//						return false;
+//					}
+//					else if (timeoutOccurred) {
+//						timeoutOccurred = false;
+//					}
+//					else if(i == numberOfTries - 1) {
+//						logger.logcat("uploadFile: loadAddress failed!", "w");
+//						state = ProtocolState.ERROR_WRITE;
+//						
+//						// Try to reset with hardware
+//						if(hardwareReset()) {
+//							continue;
+//						}
+//						// Could not reset using hardware
+//						else {
+//							return false;
+//						}
+//					}
+//				}
 			}
 		}
 		logger.logcat("uploadFile: End of file. "+
 				"Upload finished with success.", "d");
-
-		// Read bytes from arduino to verify written data
-		if(checkWrittenData) {
-			if (readWrittenBytes(bytesToLoad, false)) {
-				return true;
-			} else {
-				state = ProtocolState.ERROR_READ;
-				return false;
-			}
-		}
+		
 		return true;
 	}
 
@@ -1837,7 +1770,7 @@ public class STK500v1 {
 		READ(800),
 		SHORT_READ(800),
 		RESTART(800),
-		WRITE(75);
+		WRITE(200);
 
 		private final long timeout;
 
@@ -1862,24 +1795,12 @@ public class STK500v1 {
 	 * @return progress
 	 */
 	public int getProgress() {
-		return (int)progress;
-	}
-
-	/**
-	 * Verify input.
-	 * @param bytesToLoad Number of bytes to read, must be 16^n value
-	 * @return True if input is correct
-	 */
-	private boolean checkReadWriteBytes(int bytesToLoad) {
-		if(bytesToLoad > 0 && bytesToLoad % 16 != 0) {
-			logger.logcat("readWrittenBytes: Must be 16^n and not 0, was " + bytesToLoad, "w");
-			return false;
+		if(readWrittenPage) {
+			return (int)(progress*100);
 		}
-		else if(bytesToLoad > 256) {
-			logger.logcat("readWrittenBytes: Too big input, max 256, was " + bytesToLoad, "w");
-			return false;
+		else {
+			return (int)(progress*50);
 		}
-		return true;
 	}
 
 	/**States for the service to check. Can also improve flow control in protocol**/
