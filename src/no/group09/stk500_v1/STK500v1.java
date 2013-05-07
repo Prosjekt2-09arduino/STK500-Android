@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.concurrent.TimeoutException;
 
+
 /**
  * The protocol class for STK500v1. The current implementation only works with
  * the Optiboot bootloader.
@@ -39,6 +40,7 @@ public class STK500v1 {
 	private ArrayList<Long> statistics;
 	private boolean partialRecovery;
 	private int timeoutRecoveries;
+	private Thread readerThread;
 
 	public STK500v1 (OutputStream output, InputStream input, Logger log, byte[] binary) {
 		state = ProtocolState.INITIALIZING;
@@ -50,7 +52,9 @@ public class STK500v1 {
 		logger.logcat("STKv1 constructor: Initializing protocol code", "v");
 
 		reader = new Reader(input, logger);
-		new Thread((Runnable) reader).start();
+		readerThread = new Thread((Runnable) reader);
+		readerThread.start();
+		
 		reader.start();
 		while(reader.getState() != EReaderState.WAITING) {
 			try {
@@ -76,7 +80,7 @@ public class STK500v1 {
 		logger.logcat("Recover: Attempting timeout recovery", "i");
 		timeoutOccurred = true;
 		recoverySuccessful = false;
-		for (int i = 0; i < 10; i++) { 
+		for (int i = 0; i < 5; i++) { 
 			partialRecovery = false;
 			if (spamSync()) {
 				partialRecovery = true;
@@ -106,10 +110,25 @@ public class STK500v1 {
 	}
 
 	private void restartReader() {
-		reader.stop();
-		while (reader.getState() != EReaderState.STOPPED) {}
-		reader.start();
-		while (reader.getState() != EReaderState.WAITING) {}
+		logger.logcat("restartReader: restarting reader", "d");
+		
+		while (reader.getState() != EReaderState.STOPPED) {
+			reader.stop();
+			try {
+				Thread.sleep(10);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+
+		while (reader.getState() != EReaderState.WAITING) {
+			reader.start();
+			try {
+				Thread.sleep(1);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
 	}
 
 	public boolean spamSync() {
@@ -117,7 +136,9 @@ public class STK500v1 {
 		logger.logcat("spamSync: sending commands", "d");
 		for (int i = 0; i < 500; i++) {
 			if (reader.getState() == EReaderState.TIMEOUT_OCCURRED) {
-				if (reader.getResult() == IReader.TIMEOUT_BYTE_RECEIVED) {
+				int result = reader.getResult();
+				logger.logcat("spamSync: reader.getresult returns: " + result, "i");
+				if (result == IReader.TIMEOUT_BYTE_RECEIVED) {
 					logger.logcat("SpamSync: Returning true", "i");
 					return true;
 				}
@@ -186,22 +207,10 @@ public class STK500v1 {
 		// Restart the arduino.
 		// This requires the ComputerSerial library on arduino.
 		if (!resetAndSync()) {
+			shutdownReaderCompletely();
 			return false;
 		}
-
-		//try to get programmer version
-		//		String version = checkIfStarterKitPresent();
-		//
-		//		logger.logcat("programUsingOptiboot: " + version, "i");
-		//		logger.printToConsole(version);
-		//
-		//		// Check version
-		//		if (!version.equals("Arduino")) {
-		//			state = ProtocolState.ERROR_CONNECT;
-		//			stopReadWrapper();
-		//			return false;
-		//		};
-
+		
 		// Enter programming mode
 		startTime = System.currentTimeMillis();
 		for (int i = 0; i < 5; i++) {
@@ -214,29 +223,6 @@ public class STK500v1 {
 					(endTime-startTime) + " ms", "v");
 
 			if (entered) {
-//				long now = System.currentTimeMillis();
-
-//				int syncFails = 0;
-//				while(System.currentTimeMillis() - now < 1000) {
-//					if(!getSynchronization()) {
-//						if (timeoutOccurred && !recoverySuccessful){
-//							state = ProtocolState.ERROR_CONNECT;
-//							return false;
-//						}
-//						else if (timeoutOccurred) {
-//							timeoutOccurred = false;
-//						}
-//						logger.logcat("programUsingOptiboot: Sync gave up...", "w");
-//						syncFails++;
-//					}
-//					else {
-//						//Sync OK
-//						logger.logcat("programUsingOptiboot: Sync OK after " +
-//								(System.currentTimeMillis()-now) + " ms.", "v");
-//						break;
-//					}
-//				}
-//				logger.logcat("programUsingOptiboot: Sync fails: " + syncFails, "v");
 
 				// Check hex file
 				if(hexParser.getChecksumStatus()) {
@@ -246,6 +232,7 @@ public class STK500v1 {
 					if(!chipEraseUniversal()) {
 						if (timeoutOccurred && !recoverySuccessful){
 							state = ProtocolState.ERROR_WRITE;
+							shutdownReaderCompletely();
 							return false;
 						} else if (timeoutOccurred) {
 							timeoutOccurred = false;
@@ -266,6 +253,7 @@ public class STK500v1 {
 							//TODO Should trigger hard reset and new attempt
 							logger.logcat("ProgramUsingOptiboot: Lost communication " +
 									"during programming, hard reset required!", "i");
+							shutdownReaderCompletely();
 							return false;
 						} else if (timeoutOccurred) {
 							//recovered
@@ -278,6 +266,7 @@ public class STK500v1 {
 				else {
 					state = ProtocolState.ERROR_PARSE_HEX;
 					logger.logcat("programUsingOptiboot: Hex file not OK! Cancelling...", "w");
+					shutdownReaderCompletely();
 					return false;
 				}
 
@@ -291,6 +280,7 @@ public class STK500v1 {
 								state != ProtocolState.ERROR_WRITE) {
 							state = ProtocolState.FINISHED;
 						}
+						shutdownReaderCompletely();
 						return true;
 					}
 					else {
@@ -308,6 +298,7 @@ public class STK500v1 {
 								state != ProtocolState.ERROR_WRITE) {
 							state = ProtocolState.FINISHED;
 						}
+						shutdownReaderCompletely();
 						return false;
 					}
 				}
@@ -315,6 +306,7 @@ public class STK500v1 {
 			//couldn't enter programming mode
 			else if (timeoutOccurred && !recoverySuccessful){
 				state = ProtocolState.ERROR_CONNECT;
+				shutdownReaderCompletely();
 				return false;
 			} else if (timeoutOccurred) {
 				//recovered
@@ -323,18 +315,39 @@ public class STK500v1 {
 			//Try a soft reset before next attempt
 			if (!resetAndSync()) {
 				logger.logcat("ProgramUsingOptiboot: Unable to reset and sync!", "i");
+				shutdownReaderCompletely();
 				return false;
 			}
 		}
 
 		// Could not enter programming mode!
 		state = ProtocolState.ERROR_CONNECT;
+		shutdownReaderCompletely();
 		return false;
+	}
+	
+	@SuppressWarnings("deprecation")
+	private void shutdownReaderCompletely() {
+		long timeout = 10000;
+		long time = System.currentTimeMillis();
+		while (reader.getState() != EReaderState.STOPPED) {
+			if(System.currentTimeMillis() > time + timeout) {
+				readerThread.stop();
+				return;
+			}
+			else {
+				reader.stop();
+			}
+		}
+		((Reader)reader).requestCompleteStop();
 	}
 
 	private boolean resetAndSync() {
 		boolean connect = false;
 		for (int i = 0; i < 3; i++) {
+			if (reader.getState() != EReaderState.WAITING) {
+				restartReader();
+			}
 			if(!softReset()) {
 				logger.logcat("programUsingOptiboot: Arduino didn't restart!", "w");
 				state = ProtocolState.ERROR_CONNECT;
@@ -355,7 +368,7 @@ public class STK500v1 {
 				return true;
 			}
 		}
-		
+
 		state = ProtocolState.ERROR_CONNECT;
 		logger.logcat("programUsingOptiboot: Unable to reset and sync!", "i");
 		reader.stop();
@@ -595,38 +608,32 @@ public class STK500v1 {
 	 */
 	private boolean getSynchronization() {
 		byte[] getSyncCommand = {ConstantsStk500v1.STK_GET_SYNC, ConstantsStk500v1.CRC_EOP};
-		int tries = 0;
 
-		while (tries < 3) {
-			tries++;
-
-			try {
-				output.write(getSyncCommand);
-			} catch (IOException e) {
-				logger.logcat("getSynchronization: Unable to write output in " +
-						"getSynchronization", "i");
-				e.printStackTrace();
-				return false;
-			}
-			//If the response is valid, return. If not, continue
-			if (checkInput(false, ConstantsStk500v1.STK_GET_SYNC, TimeoutValues.CONNECT)) {
-				logger.logcat("getSynchronization: Sync achieved after " + 
-						(tries) + " tries.", "v");
-				syncStack = 0;
-				return true;
-			} else if (timeoutOccurred && partialRecovery && !recoverySuccessful) {
-				//this method can't recover from timeout on its own
-				logger.logcat("GetSynchronization: Only partial timeout recovery, give" +
-						" up.", "i");
-				return false;
-			} else if (timeoutOccurred && recoverySuccessful) {
-				timeoutOccurred = false;
-				logger.logcat("GetSynchronization: Recovered from timeout!", "i");
-				//now in sync
-				return true;
-			}
-			logger.logcat("getSynchronization: No sync", "v");
+		try {
+			output.write(getSyncCommand);
+		} catch (IOException e) {
+			logger.logcat("getSynchronization: Unable to write output in " +
+					"getSynchronization", "i");
+			e.printStackTrace();
+			return false;
 		}
+		//If the response is valid, return. If not, continue
+		if (checkInput(false, ConstantsStk500v1.STK_GET_SYNC, TimeoutValues.CONNECT)) {
+			logger.logcat("getSynchronization: Sync achieved! Returning true", "v");
+			syncStack = 0;
+			return true;
+		} else if (timeoutOccurred && partialRecovery && !recoverySuccessful) {
+			//this method can't recover from timeout on its own
+			logger.logcat("GetSynchronization: Only partial timeout recovery, give" +
+					" up.", "i");
+			return false;
+		} else if (timeoutOccurred && recoverySuccessful) {
+			timeoutOccurred = false;
+			logger.logcat("GetSynchronization: Recovered from timeout! Returning true.", "i");
+			//now in sync
+			return true;
+		}
+		logger.logcat("getSynchronization: Could not get synchronization. Returning false.", "d");
 		return false;
 	}
 
@@ -1325,7 +1332,6 @@ public class STK500v1 {
 	 */
 	private boolean checkInput() {
 		return checkInput(false, (byte) 0, TimeoutValues.DEFAULT);
-
 	}
 
 	/**
@@ -1350,6 +1356,9 @@ public class STK500v1 {
 
 		int intInput = -1;
 
+		logger.logcat("checkInput called with command: " + Hex.oneByteToHex(command), "w");
+		logger.logcat("checkInput: checkCommand = " + checkCommand, "i");
+
 		try {
 			intInput = read(timeout);
 
@@ -1361,8 +1370,10 @@ public class STK500v1 {
 			byte byteInput;
 
 			if (intInput == ConstantsStk500v1.STK_INSYNC){
+				logger.logcat("checkInput: received INSYNC", "i");
 
 				intInput = read(timeout);
+				logger.logcat("checkInput: intInput = " + intInput, "i");
 
 				if (intInput == -1) {
 					logger.logcat("checkInput: End of stream encountered", "w");
@@ -1397,6 +1408,7 @@ public class STK500v1 {
 				} else {
 					if (byteInput == ConstantsStk500v1.STK_OK) {
 
+						logger.logcat("checkInput: received OK. Returning true", "i");
 						//Two bytes sent. Response OK. Return true
 						return true;
 					}
@@ -1418,9 +1430,11 @@ public class STK500v1 {
 		} catch (TimeoutException e) {
 			logger.logcat("checkInput: Timeout!", "w");
 			if (!timeoutOccurred) {
+				logger.logcat("checkInput: Trying to recover", "w");
 				recover();
 			}
 			return false;
+
 		} catch (IOException e) {
 			logger.logcat("checkInput: Can't read! " + e.getMessage(), "w");
 			return false;
@@ -1711,14 +1725,19 @@ public class STK500v1 {
 	 * @throws IOException 
 	 */
 	private int read(byte[] buffer, TimeoutValues timeout) throws TimeoutException,
-			IOException {
-		if (reader.getState() == EReaderState.WAITING) {
-			return reader.read(timeout);
+	IOException {
+		logger.logcat("read: waiting for reader waiting state", "i");
+		while (reader.getState() != EReaderState.WAITING){
+			try {
+				Thread.sleep(1);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
 		}
-		return IReader.RESULT_NOT_DONE;
+		return reader.read(timeout);
 	}
 
-	
+
 
 	/**
 	 * Return progress of programming as integer, 0 - 100.

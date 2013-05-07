@@ -4,8 +4,8 @@ package no.group09.stk500_v1;
  * Standard timeout values for how long to wait for reading results.
  */
 public enum TimeoutValues{
-	DEFAULT(450),
-	CONNECT(450),
+	DEFAULT(50),
+	CONNECT(50),
 	READ(800),
 	SHORT_READ(800),
 	RESTART(800),

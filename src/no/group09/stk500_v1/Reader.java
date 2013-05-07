@@ -13,10 +13,10 @@ public class Reader implements Runnable, IReader {
 	private volatile EReaderState switchTo;
 	private volatile boolean doCompleteStop;
 	private EnumMap<EReaderState, IReaderState> states;
-	
+
 	private int result;
 
-	
+
 
 	public Reader(InputStream input, Logger logger) {
 		logger.logcat("Reader constructor: Initializing...", "i");
@@ -70,7 +70,7 @@ public class Reader implements Runnable, IReader {
 						eState);
 			}
 			}
-			
+
 			states.put(eState, state);
 		}
 		currentState = states.get(EReaderState.STOPPED);
@@ -84,7 +84,7 @@ public class Reader implements Runnable, IReader {
 		((BaseState)currentState).activated = false;
 		currentState = state;
 	}
-	
+
 	@Override
 	public void forget() {
 		((IReader) currentState).forget();
@@ -113,6 +113,15 @@ public class Reader implements Runnable, IReader {
 	@Override
 	public void start() {
 		((IReader)currentState).start();
+	}
+	
+	public void requestCompleteStop() {
+		if (currentState.getEnum() == EReaderState.STOPPED) {
+			logger.logcat("requestCompleteStop: setting doCompleteStop to true", "d");
+			doCompleteStop = true;
+		}
+		logger.logcat("requestCompleteStop: can only shut down completely while " +
+				"stopped. Current state: " + currentState.getEnum(), "d");
 	}
 
 	@Override
@@ -154,7 +163,7 @@ public class Reader implements Runnable, IReader {
 				synchronized(this) {
 					try {
 						logger.logcat(getEnum() + "(Base).execute: waiting...", "v");
-						wait();
+						wait(1000);
 						active = true;
 					} catch (InterruptedException e)
 					{
@@ -164,6 +173,7 @@ public class Reader implements Runnable, IReader {
 				}
 			}
 		}
+		
 
 		/**
 		 * Set flag to switch to the selected state. This will wake the current state
@@ -174,6 +184,7 @@ public class Reader implements Runnable, IReader {
 		 */
 		protected synchronized void triggerSwitch(EReaderState state) {
 			switchTo = state;
+			logger.logcat(getEnum()+ " triggerSwitch: notifying all", "d");
 			notifyAll();
 		}
 
@@ -201,7 +212,7 @@ public class Reader implements Runnable, IReader {
 		public EReaderState getEnum() {
 			return eState;
 		}
-		
+
 		@Override
 		public void forget() {
 			throw new IllegalStateException(String.format("%s.forget: Only call when " +
@@ -234,6 +245,7 @@ public class Reader implements Runnable, IReader {
 
 		@Override
 		public void start() {
+			logger.logcat(getEnum() + " start: Starting...", "d");
 			triggerSwitch(EReaderState.STARTING);
 		}
 
@@ -253,7 +265,7 @@ public class Reader implements Runnable, IReader {
 			active = true;
 			//TODO: Consider resetting fields
 		}
-		
+
 		@Override
 		public void execute() {
 			super.execute();
@@ -296,7 +308,7 @@ public class Reader implements Runnable, IReader {
 		public void start() {
 			logger.logcat("WaitingState.start: Already running...", "i");
 		}
-		
+
 		@Override
 		public void forget() {
 			int toSkip;
@@ -312,14 +324,15 @@ public class Reader implements Runnable, IReader {
 				triggerSwitch(EReaderState.FAIL);
 			}
 		}
-		
+
 		@Override
 		public boolean isReadingAllowed() {
 			return true; //TODO: Consider if checks are needed
 		}
-		
+
 		@Override
 		public int read(TimeoutValues timeout) throws TimeoutException, IOException {
+			logger.logcat(getEnum() + " read: entered read method in Reader.java", "i");
 			triggerSwitch(EReaderState.READING);
 			while (true) {
 				EReaderState s = currentState.getEnum();
@@ -362,13 +375,13 @@ public class Reader implements Runnable, IReader {
 					throw new IllegalArgumentException("Unexpected state " + s);
 				}
 				}
-				try {
-					Thread.sleep(1);
-				} catch (InterruptedException e) {}
+				//				try {
+				//					Thread.sleep(1);
+				//				} catch (InterruptedException e) {}
 			}
 		}
 	}
-	
+
 	class ReadingState extends BaseState {
 		private long readInitiated;
 
@@ -387,31 +400,38 @@ public class Reader implements Runnable, IReader {
 			active = true;
 			activated = true;
 		}
-		
+
 		@Override
 		public void execute() {
 			super.execute();
 			try {
+				int bytesInBuffer = -1;
 				long now = System.currentTimeMillis();
 				if (now - readInitiated > TimeoutValues.DEFAULT.getTimeout()) {
 					triggerSwitch(EReaderState.TIMEOUT_OCCURRED);
+					return;
 				}
+				
 				//check if there are bytes in the buffer
-				else if (bis.available() > 0) {
-					int b = bis.read();
-					//end of stream occurred, further operations will trigger IOException
-					if (b == RESULT_END_OF_STREAM) {
-						logger.logcat("ReadingState.execute: EndOfStream", "w");
-						synchronized(reader) {
-							result = b;
+				else {
+					bytesInBuffer = (bis.available());
+					if (bytesInBuffer > 0) {
+						logger.logcat(getEnum() + "bytes in buffer: " + bytesInBuffer, "d");
+						int b = bis.read();
+						//end of stream occurred, further operations will trigger IOException
+						if (b == RESULT_END_OF_STREAM) {
+							logger.logcat("ReadingState.execute: EndOfStream", "w");
+							synchronized(reader) {
+								result = b;
+							}
+							triggerSwitch(EReaderState.FAIL);
+						} else {
+							//All good
+							synchronized(reader) {
+								result = b;
+							}
+							triggerSwitch(EReaderState.RESULT_READY);
 						}
-						triggerSwitch(EReaderState.FAIL);
-					} else {
-						//All good
-						synchronized(reader) {
-							result = b;
-						}
-						triggerSwitch(EReaderState.RESULT_READY);
 					}
 				}
 			} catch (IOException e) {
@@ -431,37 +451,48 @@ public class Reader implements Runnable, IReader {
 		public void start() {
 			logger.logcat("ReadingState.start: Already running...", "i");
 		}
-		
+
 	}
-	
+
 	class ResultReadyState extends BaseState {
 
+		private boolean resultFetched = false;
+		
 		public ResultReadyState(Reader reader, EReaderState eState) {
 			super(reader, eState);
 		}
-		
+
 		@Override
 		public void execute() {
 			super.execute();
+			if (resultFetched) {
+				triggerSwitch(EReaderState.WAITING);
+			}
 			active = false;
 		}
 
 		@Override
 		public void activate() {
+			resultFetched = false;
 			logger.logcat("ResultReadyState.activate: result arrived!", "d");
 			activated = true;
 		}
 
 		@Override
 		public int getResult() {
+			int res = result;
+			logger.logcat(getEnum() + " getResult: " + res, "d");
 			synchronized(reader) {
-				int res = result;
 				result = RESULT_NOT_DONE;
-				triggerSwitch(EReaderState.WAITING);
-				return res;
 			}
+			triggerSwitch(EReaderState.WAITING);
+			synchronized (this) {
+				resultFetched = true;
+			}
+			active = true;
+			return res;
 		}
-		
+
 		@Override
 		public void stop() {
 			triggerSwitch(EReaderState.STOPPING);
@@ -471,13 +502,14 @@ public class Reader implements Runnable, IReader {
 		public void start() {
 			logger.logcat("" + getEnum() + ".start: Already running...", "i");
 		}
-		
+
 	}
-	
+
 	class TimeoutOccurredState extends BaseState {
 		private volatile boolean readInProgress;
 		private volatile boolean forgetInProgress;
 		private volatile boolean receivedSomething;
+		private int toSkip = -1;
 
 		public TimeoutOccurredState(Reader reader, EReaderState eState) {
 			super(reader, eState);
@@ -490,11 +522,15 @@ public class Reader implements Runnable, IReader {
 			//only run while ready
 			if (!forgetInProgress && !readInProgress && !receivedSomething) {
 				try {
+
 					//see estimate of skippable bytes (should be number of buffered and 
 					//those in the socket receiver buffer)
 					skippableBytes = bis.available();
-					logger.logcat(getEnum() + ".execute: " + skippableBytes +
-							" possible to skip.", "i");
+					if (skippableBytes != toSkip) {
+						logger.logcat(getEnum() + ".execute: " + skippableBytes +
+								" possible to skip.", "i");
+						toSkip = skippableBytes;
+					}
 					if (skippableBytes > 0) {
 						receivedSomething = true;
 					}
@@ -561,6 +597,8 @@ public class Reader implements Runnable, IReader {
 			forgetInProgress = false;
 			receivedSomething = false;
 			int avail = 0;
+			toSkip = -1;
+			
 			try {
 				avail = bis.available();
 				if (avail > 0) {
@@ -588,9 +626,9 @@ public class Reader implements Runnable, IReader {
 		public void start() {
 			logger.logcat("TimeoutOccurredState.start: Already running", "i");
 		}
-		
+
 	}
-	
+
 	class FailureState extends BaseState {
 
 		public FailureState(Reader reader, EReaderState eState) {
@@ -602,7 +640,7 @@ public class Reader implements Runnable, IReader {
 			logger.logcat(getEnum() + ".activate: Reader failed!", "e");
 			activated = true;
 		}
-		
+
 		@Override
 		public void execute() {
 			super.execute();
@@ -635,9 +673,9 @@ public class Reader implements Runnable, IReader {
 			logger.logcat(getEnum() + ".start: Already running, though currently" +
 					" in a failure state.", "i");
 		}
-		
+
 	}
-	
+
 	class StoppingState extends BaseState {
 
 		public StoppingState(Reader reader, EReaderState eState) {
@@ -656,7 +694,7 @@ public class Reader implements Runnable, IReader {
 			super.execute();
 			triggerSwitch(EReaderState.STOPPED);
 		}
-		
+
 		@Override
 		public void stop() {
 			logger.logcat("StoppingState.stop: Already stopping...", "i");
@@ -666,6 +704,6 @@ public class Reader implements Runnable, IReader {
 		public void start() {
 			throw new IllegalStateException("Can't start during shutdown!");
 		}
-		
+
 	}
 }
