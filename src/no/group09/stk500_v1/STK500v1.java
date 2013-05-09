@@ -170,7 +170,40 @@ public class STK500v1 {
 		logger.logcat("SpamSync: unable to recover. Returning false", "i");
 		return false;
 	}
+	
+	/**
+	 * Set progress.
+	 * @param p Progress to set. Valid input is 0 - 100.
+	 */
+	private void setProgress(double p) {
+		if(p > 100) {
+			logger.logcat("setProgress: Value too high, values was: " + p, "w");
+			progress = 100;
+		}
+		else if(p < 100) {
+			logger.logcat("setProgress: Value too low, values was: " + p, "w");
+			progress = 0;
+		}
+		else {
+			progress = p;
+		}
+		
+	}
+	
+	/**
+	 * Return progress of programming as integer, 0 - 100.
+	 * If verification is enabled, writing goes from 0-50 and reading continues to 100.
+	 * Otherwise, writing uses the entire scale.
+	 * @return progress
+	 */
+	public int getProgress() {
+		return (int)progress;
+	}
 
+	/**
+	 * Print to log how much time the writing used.
+	 * Printing highest, average and lowest time used. 
+	 */
 	private void writingStats() {
 		long min = Long.MAX_VALUE;
 		long max = 0;
@@ -367,6 +400,10 @@ public class STK500v1 {
 		return false;
 	}
 
+	/**
+	 * Try to restart arduino and get synchronized.
+	 * @return True if the arduino restarted and sync is regained.
+	 */
 	private boolean resetAndSync() {
 		boolean connect = false;
 		for (int i = 0; i < 3; i++) {
@@ -471,7 +508,7 @@ public class STK500v1 {
 
 	/**
 	 * Check if the read wrapper is running
-	 * @return true if it is
+	 * @return true if it is running
 	 */
 	public synchronized boolean isReadWrapperRunning() {
 		if (readWrapper == null || readWrapperThread == null) {
@@ -544,70 +581,6 @@ public class STK500v1 {
 		//			return;
 		//		}
 		//	}
-	}
-
-	private void uploadZeroes(boolean usePages) {
-		int totalBytesToWrite = 128;
-		int bytesToWrite = 2;
-		byte[] data = new byte[] {1, 1};
-		byte[] highLow;
-
-		byte lengthLow = (byte) bytesToWrite;
-		byte lengthHigh = (byte) 0;
-
-		int errorCount = 0;
-		if (usePages) {
-			//use programpage
-			int linesWritten = 0;
-			logger.logcat("uploadZeroes: Initializing", "v");
-			for (int i = 0; i < totalBytesToWrite/bytesToWrite && errorCount < 10; i++) {
-				highLow = packTwoBytes(i * bytesToWrite);
-				if (loadAddress(highLow[0], highLow[1])) {
-					if (programPage(true, data)) {
-						errorCount = 0;
-						linesWritten++;
-						continue;
-					} else {
-						logger.logcat("uploadZeroes: Failed to write line " + i, "w");
-						i--;
-					}
-				} else {
-					logger.logcat("uploadZeroes: Failed to load address for line " + i, "w");
-					i--;
-				}
-				errorCount++;
-			}
-			logger.logcat("uploadZeroes: Wrote " + linesWritten + " lines", "i");
-		} else {
-			//use program word
-			logger.logcat("uploadZeroes: Initializing word writing", "v");
-			int wordsWritten = 0;
-			int i = 0;
-			for (int j = 0; j < 4; j++) {
-				if (!loadAddress((byte) 0, (byte) 0)) {
-					logger.logcat("uploadZeroes: coudn't load 0 address", "i");
-				} else {
-					break;
-					//continue method
-				}
-			}
-
-			while (i < bytesToWrite / 2 && errorCount < 10) {
-				logger.logcat("uploadZeroes: write word " + wordsWritten, "i");
-				if (programFlashMemory((byte) 0, (byte) 0)) {
-					logger.logcat("uploadZeroes: word written: " + wordsWritten, "i");
-					i+= 2; //increment one word
-					wordsWritten++;
-					errorCount = 0;
-				} else {
-					errorCount++;
-					logger.logcat("uploadZeroes: error writing word #" + wordsWritten, "w");
-				}
-			}
-
-			logger.logcat("uploadZeroes: wrote " + wordsWritten + " words.", "i");
-
-		}
 	}
 
 	/**
@@ -801,6 +774,7 @@ public class STK500v1 {
 	 * @return true if successful.
 	 */
 	private boolean chipErase() {
+		//TODO: Not used by optiboot
 		byte[] command = new byte[]{ConstantsStk500v1.STK_CHIP_ERASE, ConstantsStk500v1.CRC_EOP};
 
 		logger.logcat("chipErase: Sending bytes to erase chip: " + Hex.bytesToHex(command), "d");
@@ -825,6 +799,7 @@ public class STK500v1 {
 	 * @return true if successful.
 	 */
 	private boolean chipEraseUniversal() {
+		//TODO: Not used by optiboot
 		byte[] command = new byte[6];
 
 		command[0] = ConstantsStk500v1.STK_UNIVERSAL;
@@ -894,7 +869,7 @@ public class STK500v1 {
 	 */
 	private boolean checkForAddressAutoincrement() {
 
-		//TODO: Add call to this method.
+		//TODO: Remove or add call to this method?
 
 		byte[] command = new byte[2];
 
@@ -918,18 +893,11 @@ public class STK500v1 {
 	 * address for the next read or write operation to FLASH or EEPROM. Must 
 	 * always be used prior to Cmnd_STK_PROG_PAGE or Cmnd_STK_READ_PAGE.
 	 * 
-	 * @param address the address that is to be written as an int
+	 * @param address the address that is to be written as an integer
 	 * 
 	 * @return true if it is OK to write the address, false if not.
 	 */
 	private boolean loadAddress(int address) {
-		//		try {
-		//			Thread.sleep(SLEEP_DELAY);
-		//		} catch (InterruptedException e1) {
-		//			// TODO Auto-generated catch block
-		//			e1.printStackTrace();
-		//		}
-
 		//Split integer address into two bytes address 
 		byte[] tempAddr = packTwoBytes(address / 2);
 
@@ -952,6 +920,7 @@ public class STK500v1 {
 			return false;
 		}
 
+		// Check if address was loaded
 		if (checkInput()){
 			logger.logcat("loadAddress: address loaded", "i");
 			return true;
@@ -1034,13 +1003,6 @@ public class STK500v1 {
 	 * @return true if response is STK_INSYNC and STK_OK, false if not.
 	 */
 	private boolean programPage(boolean writeFlash, byte[] data) {
-		//		try {
-		//			Thread.sleep(SLEEP_DELAY);
-		//		} catch (InterruptedException e1) {
-		//			// TODO Auto-generated catch block
-		//			e1.printStackTrace();
-		//		}
-		
 		byte[] programPage = new byte[5+data.length];
 		byte memtype;
 
@@ -1054,9 +1016,11 @@ public class STK500v1 {
 			memtype = (byte)'F';
 		}
 		// Write EEPROM
-		// This is not implemented in optiboot
 		else {
-			memtype = (byte)'E';
+			// This is not implemented in optiboot
+			throw new IllegalArgumentException("Does not support writing to EEPROM.");
+			
+//			memtype = (byte)'E';
 		}
 		programPage[3] = memtype;
 
@@ -1135,18 +1099,20 @@ public class STK500v1 {
 
 		readCommand[0] = ConstantsStk500v1.STK_READ_PAGE;
 
+		readCommand[1] = bytes_high;
+		readCommand[2] = bytes_low;
+		
 		// Read flash
 		if (writeFlash) {
 			memtype = (byte)'F';
-			readCommand[1] = bytes_high;
-			readCommand[2] = bytes_low;
 		}
+		// Read EEPROM
 		else {
-			// Read EEPROM
 			// This is not implemented in optiboot
-			memtype = (byte)'E';
-			readCommand[1] = bytes_high;
-			readCommand[2] = bytes_low;
+			throw new IllegalArgumentException("Does not support reading from EEPROM.");
+			
+//			memtype = (byte)'E';
+			
 		}
 		readCommand[3] = memtype;
 		readCommand[4] = ConstantsStk500v1.CRC_EOP;
@@ -1478,17 +1444,17 @@ public class STK500v1 {
 	}
 
 	/**
-	 * Used to upload and read files to the flash memory. This method sends
-	 * the content of the binary byte array in pairs of two to the flash memory.
-	 * Can also be used to read data and compare this to the hex file.
+	 * Upload and read files to the flash memory. This method sends the content of
+	 * the binary byte array in pairs of two to the flash memory. Can also be used
+	 * to read data and compare this to the hex file.
 	 * 
 	 * @param checkWrittenData Verify written bytes.
-	 * @param bytesToLoad How many bytes to write/read at once.
+	 * @param bytesToLoad How many bytes to write or read at once.
 	 * 
 	 * @return True if uploading and reading was successful.
 	 */
 	private boolean writeAndReadFile(boolean checkWrittenData, int bytesToLoad) {
-		progress = 0;
+		setProgress(0);
 		uploadFileTries = 0;
 		if(checkWrittenData) readWrittenPage = true;
 		else readWrittenPage = false;
@@ -1506,11 +1472,11 @@ public class STK500v1 {
 	
 	
 	/**
-	 * Used to upload and read files to the flash memory. This method sends
-	 * the content of the binary byte array in pairs of two to the flash memory.
-	 * Can also be used to read data and compare this to the hex file.
+	 * Upload and read files to the flash memory. This method sends the content of
+	 * the binary byte array in pairs of two to the flash memory. Can also be used
+	 * to read data and compare this to the hex file.
 	 * 
-	 * @param bytesToLoad How many bytes to write or read.
+	 * @param bytesToLoad How many bytes to write or read at once.
 	 * @param write If this method should write or read. True = write. 
 	 * 
 	 * @return True if everything was successful.
@@ -1576,8 +1542,8 @@ public class STK500v1 {
 					// Calculate progress
 					double tempProgress = (double)hexPosition / (double)hexParser.getDataSize();
 					
-					if(readWrittenPage) progress = tempProgress*50;
-					else progress = tempProgress*100;
+					if(readWrittenPage) setProgress(tempProgress*50);
+					else setProgress(tempProgress*100);
 					
 					logger.logcat("progress: " + getProgress() + " % " +
 							hexPosition + " / " + hexParser.getDataSize(), "d");
@@ -1597,7 +1563,7 @@ public class STK500v1 {
 					// Calculate progress
 					logger.logcat("hexPosition: " + hexPosition +
 							", hexParser.getDataSize(): " + hexParser.getDataSize(), "d");
-					progress = (double)hexPosition / (double)hexParser.getDataSize() + 50;
+					setProgress((double)hexPosition / (double)hexParser.getDataSize() + 50);
 					
 					logger.logcat("progress: " + getProgress() + " % ", "d");
 				}
@@ -1799,16 +1765,6 @@ public class STK500v1 {
 		public long getTimeout() {
 			return timeout;
 		}
-	}
-
-	/**
-	 * Return progress of programming as integer, 0 - 100.
-	 * If verification is enabled, writing goes from 0-50 and reading continues to 100.
-	 * Otherwise, writing uses the entire scale.
-	 * @return progress
-	 */
-	public int getProgress() {
-		return (int)progress;
 	}
 
 	/**States for the service to check. Can also improve flow control in protocol**/
