@@ -1757,6 +1757,7 @@ public class STK500v1 {
 	}
 
 	public boolean waitForReaderStateActivated (long timeout) {
+		logger.logcat("waitForReaderStateActivated: waiting for state to activate", "d");
 		long time = System.currentTimeMillis();
 		while(!reader.wasCurrentStateActivated()) {
 			if (timeout > 0 && System.currentTimeMillis() - time > timeout) {

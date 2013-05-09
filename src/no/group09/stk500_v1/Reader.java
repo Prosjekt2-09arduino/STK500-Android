@@ -114,7 +114,7 @@ public class Reader implements Runnable, IReader, Observable {
 	private synchronized IReaderState pollEventQueue() {
 		IReaderState state = eventQueue.poll();
 		if (state != null) {
-			logger.logcat("pollEventQueue: polling event " + state + " from queue", "d");
+			logger.logcat("pollEventQueue: polling event " + state.getEnum() + " from queue", "d");
 		}
 		return state;
 	}
@@ -254,16 +254,11 @@ public class Reader implements Runnable, IReader, Observable {
 				//Change state
 				if (nextState != null) {
 					currentState = nextState;
+					((BaseState) nextState).abort = false;
 					abort = true;
 					activated = false;
 					return;
 				}
-				//				if (eState != switchTo) {
-				//					logger.logcat(getEnum() + "(Base).execute: State switch required",
-				//							"v");
-				//					switchState(switchTo);
-				//					return;
-				//				}
 			}
 			if (!active) {
 				synchronized(this) {
@@ -816,6 +811,7 @@ public class Reader implements Runnable, IReader, Observable {
 			resetQueue();
 			logger.logcat("StoppingState.activate: Shutdown in progress...", "i");
 			active = true;
+			((BaseState)states.get(EReaderState.STOPPED)).abort = false;
 			activated = true;
 			abort = false;
 		}
