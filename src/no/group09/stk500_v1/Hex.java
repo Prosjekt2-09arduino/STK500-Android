@@ -33,6 +33,16 @@ public class Hex {
 	}
 	
 	/**
+	 * Return state of hex file.
+	 * 
+	 * @return True if the hex file is correct.
+	 */
+	public boolean getChecksumStatus()
+	{
+		return state;
+	}
+	
+	/**
 	 * Return data bytes.
 	 * 
 	 * @param startByte Where to start loading bytes
@@ -43,9 +53,11 @@ public class Hex {
 	public byte[] getHexLine(int startByte, int numberOfBytes)
 	{
 		try {
-			logger.logcat("Hex.getHexLine: startByte: " + startByte + ", numberOfBytes: " + numberOfBytes, "d");
+			logger.logcat("Hex.getHexLine: startByte: " + startByte +
+					", numberOfBytes: " + numberOfBytes, "d");
 			return formatHexLine(startByte, numberOfBytes);
 		} catch (IndexOutOfBoundsException e) {
+			// There was no bytes, return an empty array
 			logger.logcat("Hex.getHexLine: startByte is out of bounds! Value was: " +
 					startByte + ", max value: " + dataList.size(), "w");
 			byte[] temp = new byte[0]; 
@@ -59,12 +71,12 @@ public class Hex {
 	 * @param startByte Where to start loading bytes.
 	 * @param numberOfBytes Number of bytes to load.
 	 * 
-	 * @return Byte array with data bytes. Start loading from <code>startByte</code>,
-	 * maximum <code>numberOfBytes</code>
+	 * @return Byte array with data bytes.
 	 * 
 	 * @throws IndexOutOfBoundsException When <code>startByte</code> does not exist.
 	 */
-	private byte[] formatHexLine(int startByte, int numberOfBytes) throws IndexOutOfBoundsException
+	private byte[] formatHexLine(int startByte, int numberOfBytes)
+			throws IndexOutOfBoundsException
 	{
 		try {
 			dataList.get(startByte);
@@ -93,15 +105,6 @@ public class Hex {
 	}
 	
 	/**
-	 * Return state of hex file
-	 * @return true if the hex file is correct
-	 */
-	public boolean getChecksumStatus()
-	{
-		return state;
-	}
-	
-	/**
 	 * Split the hex input into an array and check if it's correct.
 	 * Each line must start with ':' (colon), byte value 58. The following
 	 * values is 1 byte size, 2 byte address, n byte data, 1 byte checksum.
@@ -111,13 +114,14 @@ public class Hex {
 	 * @return True if the hex file is correct.
 	 */
 	private boolean splitHex() {
-		int x = 0;
-		while(x < subHex.length) {
-			x = splitHex(x);
+		int b = 0;
+		
+		// Keep splitting the hex file until there is no more data bytes
+		while(b < subHex.length) {
+			b = splitHex(b);
 			
-			//logger.logcat("splitHex: X = " + x, "d");
-			
-			if(x < 0) return false;
+			// Something went wrong
+			if(b < 0) return false;
 		}
 		
 		return true;
@@ -132,7 +136,7 @@ public class Hex {
 	 * @param startOnDataByte Start reading at this byte number. When finished
 	 * with this line, starting on the next line.
 	 * 
-	 * @return True if the hex file is correct.
+	 * @return Index to last checked byte.
 	 */
 	private int splitHex(int startOnDataByte) {
 		int dataLength = 0;
@@ -158,7 +162,8 @@ public class Hex {
 			return -1;
 		}
 		//If record type is 0x01 (file end) and it exist more bytes to read, return false
-		else if(subHex[startOnDataByte + 4]==1 && subHex.length>startOnDataByte + dataLength + 6) {
+		else if(subHex[startOnDataByte + 4]==1 &&
+				subHex.length>startOnDataByte + dataLength + 6) {
 			logger.logcat("splitHex(): Contains more lines with data, " +
 					"but are told to stop!", "w");
 			return -1;
@@ -201,6 +206,7 @@ public class Hex {
 					return -1;
 				}
 			}
+			//Checksum not correct
 			else {
 				logger.logcat("splitHex(): Checksum failed!", "w");
 				return -1;
@@ -208,15 +214,14 @@ public class Hex {
 		}
 	}
 	
-	
 	/**
 	 * Calculate and check the checksum of the given byte array
 	 * with the checksum from hex file.
 	 * 
-	 * @param data Byte array to check
+	 * @param data Byte array to check.
 	 * @param startByte Where to start loading bytes from hex file.
 	 * 
-	 * @return true if checksum is correct, false if not.
+	 * @return True if checksum is correct, false if not.
 	 */
 	private boolean checkData (byte[] data, int startByte) {
 		int byteValue = 0;
@@ -234,12 +239,13 @@ public class Hex {
 	}
 	
 	/**
-	 * Convert a byte array into hex.
+	 * Convert a byte array into a hex string. Useful for debugging.
 	 * @param bytes
 	 * @return string with hex
 	 */
 	public static String bytesToHex(byte[] bytes) {
-		final char[] hexArray = {'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'};
+		final char[] hexArray = {'0','1','2','3','4','5','6','7','8','9',
+				'a','b','c','d','e','f'};
 		char[] hexChars = new char[bytes.length * 5];
 		int v;
 		for ( int j = 0; j < bytes.length; j++ ) {
