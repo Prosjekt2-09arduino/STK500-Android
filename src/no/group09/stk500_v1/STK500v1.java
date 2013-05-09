@@ -51,6 +51,10 @@ public class STK500v1 {
 		this.logger = log;
 		logger.logcat("STKv1 constructor: Initializing protocol code", "v");
 
+		statistics = new ArrayList<Long>();
+	}
+	
+	private void initializeWrapper() {
 		reader = new Reader(input, logger);
 		readerThread = new Thread((Runnable) reader);
 		readerThread.start();
@@ -65,9 +69,6 @@ public class STK500v1 {
 		
 		logger.logcat("STKv1 constructor: ReadWrapper should be started now", "v");
 		state = ProtocolState.READY;
-		//readWrapper.setStrictPolicy(false);
-
-		statistics = new ArrayList<Long>();
 	}
 
 	/**
@@ -204,6 +205,7 @@ public class STK500v1 {
 	 * recommended to run this again or verify written data by using readWrittenBytes 
 	 */
 	public boolean programUsingOptiboot(boolean checkWrittenData, int numberOfBytes) {
+		initializeWrapper();
 		timeoutOccurred = false;
 		partialRecovery = false;
 		recoverySuccessful = false;
@@ -295,6 +297,7 @@ public class STK500v1 {
 					}
 					else {
 						if (timeoutOccurred && !recoverySuccessful) {
+							//TODO: Change state differently here.
 							state = ProtocolState.ERROR_CONNECT;
 							break;
 						} else if (timeoutOccurred) {
