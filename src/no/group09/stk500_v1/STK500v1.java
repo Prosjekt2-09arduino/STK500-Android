@@ -303,8 +303,9 @@ public class STK500v1 {
 					}
 					else {
 						if (timeoutOccurred && !recoverySuccessful) {
-							//TODO: Change state differently here.
-							state = ProtocolState.ERROR_CONNECT;
+							logger.logcat("programUsingOptiboot: Unable to recover" +
+									" from timeout. May attempt soft reset and" +
+									" new try before falling back to hard reset", "e");
 							break;
 						} else if (timeoutOccurred) {
 							timeoutOccurred = false;
