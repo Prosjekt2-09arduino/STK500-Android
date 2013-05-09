@@ -4,73 +4,92 @@ import java.util.ArrayList;
 
 public class Hex {
 	private Logger logger;
+	
 	private ArrayList<ArrayList<Byte>> binList = new ArrayList<ArrayList<Byte>>();
+	
+	private ArrayList<Byte> dataList = new ArrayList<Byte>();
 	
 	private byte[] subHex; 
 	
-	private int line = -1;
 	private boolean state = false;
 	
 	public Hex(byte[] bin, Logger log) {
 		this.logger = log;
 		this.subHex = bin;
 		
-		// count lines and create an array
+		// create a new ArrayList and save state
 		state = splitHex();
 		
 		logger.logcat("Hex file status: " + state, "v");
-		logger.logcat("Hex file has " + getLines() + " lines", "v");
 	}
 	
 	/**
-	 * Return a line from hex.
-	 * @param line
-	 * @return array with size, address (high), address (low) and data
-	 */
-	public byte[] getHexLine(int line)
-	{
-		return formatHexLine(line);
-	}
-	
-	/**
-	 * Return the load address for this line
-	 * @param line The line number to check
-	 * @return The load address, high byte, low byte
-	 */
-	public byte[] getLoadAddress(int line) {
-		byte[] tempArray = new byte[2];
-		tempArray[0] = binList.get(line).get(1);
-		tempArray[1] = binList.get(line).get(2);
-		return tempArray;
-	}
-	
-	/**
-	 * Returns number of lines in hex file.
-	 * @return line from hex file
-	 */
-	public int getLines()
-	{
-		if(state) {
-			return line;
-		}
-		else {
-			return -1;
-		}
-	}
-	
-	/**
+	 * Return number of data bytes from hex file.
 	 * 
-	 * @param line number
-	 * @return number of data bytes on line as unsigned integer
+	 * @return Number of data bytes.
 	 */
-	public int getDataSizeOnLine(int line)
+	public int getDataSize() {
+		return dataList.size();
+	}
+	
+	/**
+	 * Return data bytes.
+	 * 
+	 * @param startByte Where to start loading bytes
+	 * @param numberOfBytes Number of bytes to return.
+	 * 
+	 * @return Array with data bytes, maximum <code>numberOfBytes</code>.
+	 */
+	public byte[] getHexLine(int startByte, int numberOfBytes)
 	{
-		if(line<this.line) {
-			logger.logcat("splitHex: Line " + line +
-					" has " + (binList.get(line).get(0) & 0xFF) + " bytes","d");
-			return binList.get(line).get(0) & 0xFF;
+		try {
+			logger.logcat("Hex.getHexLine: startByte: " + startByte + ", numberOfBytes: " + numberOfBytes, "d");
+			return formatHexLine(startByte, numberOfBytes);
+		} catch (IndexOutOfBoundsException e) {
+			logger.logcat("Hex.getHexLine: startByte is out of bounds! Value was: " +
+					startByte + ", max value: " + dataList.size(), "w");
+			byte[] temp = new byte[0]; 
+			return temp;
 		}
-		return -1;
+	}
+	
+	/**
+	 * Format hex file and return data bytes.
+	 * 
+	 * @param startByte Where to start loading bytes.
+	 * @param numberOfBytes Number of bytes to load.
+	 * 
+	 * @return Byte array with data bytes. Start loading from <code>startByte</code>,
+	 * maximum <code>numberOfBytes</code>
+	 * 
+	 * @throws IndexOutOfBoundsException When <code>startByte</code> does not exist.
+	 */
+	private byte[] formatHexLine(int startByte, int numberOfBytes) throws IndexOutOfBoundsException
+	{
+		try {
+			dataList.get(startByte);
+		} catch (Exception e) {
+			throw new IndexOutOfBoundsException("Index " + startByte + " is out of bounds!");
+		}
+		
+		int dataLength = numberOfBytes;
+		
+		// Check if it is enough data bytes to read
+		if((startByte + numberOfBytes) > dataList.size()) {
+			dataLength = dataList.size() - startByte;
+			logger.logcat("Hex.formatHexLine: Could not read " + numberOfBytes +
+					" bytes, changed to " + dataLength, "i");
+		}
+		
+		// Create a new temporary array
+		byte[] tempArray = new byte[dataLength];
+		
+		// Store data bytes into array
+		for(int i=0; i<dataLength; i++) {
+			tempArray[i] = dataList.get(startByte+i);
+		}
+		
+		return tempArray;
 	}
 	
 	/**
@@ -83,56 +102,6 @@ public class Hex {
 	}
 	
 	/**
-	 * Check if a byte array is exactly the same as the data fields in a specific line.
-	 * If data contains more than 16 bytes, it will start on next line.
-	 * 
-	 * @param line to check
-	 * @param data to check
-	 * 
-	 * @return true if the data array is equal to the data array in this hex file
-	 */
-	public boolean checkBytesOnLine(int line, byte[] data) {
-		//logger.logcat("splitHex: Input: " + bytesToHex(data), "d");
-		
-		//Return false if the line does not exist
-		if(line > this.line) {
-			return false;
-		}
-		//Return true if data length is zero
-		else if(data.length == 0 || data == null) {
-			return true;
-		}
-		
-		//Remember to ignore size, address x 2, record and checksum,
-		//total 6 bytes
-		for (int i = 0; i < binList.get(line).size()-6; i++) {
-			
-			//Last data byte, start on new line
-			if(i == binList.get(line).size()-5) {
-				logger.logcat("splitHex: Compare next line (" + line + ")", "d");
-				
-				byte tempData[] = new byte[data.length - binList.get(line).size()+5];
-				for (int j = 0; j < tempData.length; j++) {
-					tempData[j] = data[j+binList.get(line).size()-5];
-				}
-				return checkBytesOnLine(line+1, tempData);
-			}
-			else if(data[i] != binList.get(line).get(i+4)) {
-				logger.logcat("splitHex: Input: " + bytesToHex(data), "d");
-				
-				logger.logcat("splitHex: Hex file: " + bytesToHex(formatHexLine(line)), "d");
-				
-				logger.logcat("splitHex: Compared " + oneByteToHex(data[i]) + " with " +
-						oneByteToHex(binList.get(line).get(i+4)) +
-						" on line " + line + " failed! Data number " + i, "w");
-				return false;
-			}
-		}
-		
-		return true;
-	}
-	
-	/**
 	 * Split the hex input into an array and check if it's correct.
 	 * Each line must start with ':' (colon), byte value 58. The following
 	 * values is 1 byte size, 2 byte address, n byte data, 1 byte checksum.
@@ -142,12 +111,11 @@ public class Hex {
 	 * @return True if the hex file is correct.
 	 */
 	private boolean splitHex() {
-		logger.logcat("splitHex: Number of bytes in array " + subHex.length, "d");
 		int x = 0;
 		while(x < subHex.length) {
 			x = splitHex(x);
 			
-//			logger.logcat("splitHex: X = " + x, "d");
+			//logger.logcat("splitHex: X = " + x, "d");
 			
 			if(x < 0) return false;
 		}
@@ -201,37 +169,32 @@ public class Hex {
 			return -1;
 		}
 		else {
-			//add new line to ArrayList
-			line++;
-			
-//			logger.logcat("splitHex: creating line " + line + " startOnDataByte " + startOnDataByte, "v");
-			
 			binList.add(new ArrayList<Byte>());
 			
-			//Save data size
-			binList.get(line).add(subHex[startOnDataByte + 1]); // size
-			binList.get(line).add(subHex[startOnDataByte + 2]); // start address
-			binList.get(line).add(subHex[startOnDataByte + 3]); // start address
-			binList.get(line).add(subHex[startOnDataByte + 4]); // record
+			byte[] tempBytes = new byte[subHex[startOnDataByte + 1] + 6];
+			
+			tempBytes[0] = subHex[startOnDataByte + 1]; //size
+			tempBytes[1] = subHex[startOnDataByte + 2]; //start address
+			tempBytes[2] = subHex[startOnDataByte + 3]; //start address
+			tempBytes[3] = subHex[startOnDataByte + 4]; //record
 			
 			//save data
-			for (int i = startOnDataByte + 5; i < startOnDataByte + dataLength + 5; i++) {
-				binList.get(line).add(subHex[i]);
+			for (int i = 0; i < dataLength; i++) {
+				tempBytes[i] = subHex[i + startOnDataByte + 5];
 			}
 			
 			//save checksum
-			binList.get(line).add(subHex[startOnDataByte + 5 + dataLength]);
-			
-			byte[] t = new byte[binList.get(line).size()];
-			for (int i = 0; i < binList.get(line).size(); i++) {
-				t[i] = binList.get(line).get(i);
-			}
+			tempBytes[tempBytes.length - 1] = subHex[startOnDataByte + 5 + dataLength];
 			
 			//Check if the checksum is correct
-			if(checkData(line)) {
+			if(checkData(tempBytes, startOnDataByte)) {
 				//End of hex file
 				try {
-					// No more data on line
+					// Save data
+					for(int i=0; i<dataLength; i++) {
+						dataList.add(subHex[startOnDataByte + i + 5]); 
+					}
+					
 					return (startOnDataByte + dataLength + 6);
 				} catch (ArrayIndexOutOfBoundsException e) {
 					// Array out of bounds
@@ -247,69 +210,31 @@ public class Hex {
 	
 	
 	/**
-	 * Format line in hex file into an array with:
-	 * 1 byte size
-	 * 2 byte address
-	 * n byte data
-	 * @param line number in hex file
-	 * @return byte array, empty if the line is out of bounds
-	 */
-	private byte[] formatHexLine(int line)
-	{		
-		byte tempBinary[] = null;
-		
-		//Check if the line is out of bounds
-		try {
-			//Create a new temporary array
-			tempBinary = new byte[binList.get(line).size()-2];
-						
-			//Add elements into an array
-			for(int i=0; i<binList.get(line).size()-1; i++) {
-				//Ignore the record element, but save size and address
-				if(i<3) {
-					tempBinary[i] = binList.get(line).get(i);
-				}
-				//Ignore checksum
-				else if(i>3) {
-					tempBinary[i-1] = binList.get(line).get(i);
-				}
-			}
-			return tempBinary;
-		} catch (IndexOutOfBoundsException e) {
-//			logger.logcat("formatHexLine(): Out of bounds!", "e");
-			tempBinary = null;
-			return tempBinary;
-		}
-	}
-	
-	/**
-	 * Calculate and check the checksum of the given line in the binary array.
+	 * Calculate and check the checksum of the given byte array
+	 * with the checksum from hex file.
 	 * 
-	 * @param line integer telling which line in the binary array that is to be
-	 * checksummed.
+	 * @param data Byte array to check
+	 * @param startByte Where to start loading bytes from hex file.
 	 * 
 	 * @return true if checksum is correct, false if not.
 	 */
-	private boolean checkData (int line) {
-		//length of data
-		int length = binList.get(line).size();
-
+	private boolean checkData (byte[] data, int startByte) {
 		int byteValue = 0;
 
 		//Add the values of all the fields together, except checksum 
-		for(int i=0; i<length-1; i++) {
-			byteValue += binList.get(line).get(i);
+		for(int i=0; i<data.length-2; i++) {
+			byteValue += subHex[startByte + i + 1];
 		}
 
 		int b = 0x100;
 
 		byte check = (byte) (b-byteValue);
 		
-		return (check&0xFF) == (binList.get(line).get(length-1)&0xFF);
+		return (byte)(check&0xFF) == (data[(data.length-1)&0xFF]);
 	}
 	
 	/**
-	 * Convert a byte array into hex
+	 * Convert a byte array into hex.
 	 * @param bytes
 	 * @return string with hex
 	 */
@@ -329,9 +254,9 @@ public class Hex {
 	}
 	
 	/**
-	 * Convert a byte into hex
-	 * @param b
-	 * @return string with one hex
+	 * Convert a byte into hex.
+	 * @param b One byte to convert
+	 * @return String with one hex
 	 */
 	public static String oneByteToHex(byte b) {
 		byte[] tempB = new byte[1];
