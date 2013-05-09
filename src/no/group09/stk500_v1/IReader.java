@@ -24,10 +24,10 @@ public interface IReader {
 	public int read(TimeoutValues timeout) throws TimeoutException, IOException;
 	
 	/**Stop the reader**/
-	public void stop();
+	public boolean stop();
 	
 	/**Start the reader**/
-	public void start();
+	public boolean start();
 	
 	/**
 	 * Attempt to forget received unread bytes.

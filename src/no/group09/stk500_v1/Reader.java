@@ -151,13 +151,13 @@ public class Reader implements Runnable, IReader, Observable {
 	}
 
 	@Override
-	public void stop() {
-		((IReader)currentState).stop();
+	public boolean stop() {
+		return ((IReader)currentState).stop();
 	}
 
 	@Override
-	public void start() {
-		((IReader)currentState).start();
+	public boolean start() {
+		return ((IReader)currentState).start();
 	}
 
 	public void requestCompleteStop() {
@@ -348,14 +348,16 @@ public class Reader implements Runnable, IReader, Observable {
 		}
 
 		@Override
-		public void stop() {
+		public boolean stop() {
 			logger.logcat("StoppedState.stop: Already stopped", "i");
+			return true;
 		}
 
 		@Override
-		public void start() {
+		public boolean start() {
 			logger.logcat(getEnum() + " start: Starting...", "d");
 			triggerSwitch(EReaderState.STARTING);
+			return true;
 		}
 
 	}
@@ -386,14 +388,16 @@ public class Reader implements Runnable, IReader, Observable {
 		}
 
 		@Override
-		public void stop() {
-			throw new IllegalStateException("Wait until it's running before attempting" +
-					" to stop");
+		public boolean stop() {
+			logger.logcat("StartingState: Wait until it's running before attempting" +
+					" to stop", "e");
+			return false;
 		}
 
 		@Override
-		public void start() {
+		public boolean start() {
 			logger.logcat("StartingState.start: Already starting...", "i");
+			return true;
 		}
 
 	}
@@ -414,13 +418,15 @@ public class Reader implements Runnable, IReader, Observable {
 		}
 
 		@Override
-		public void stop() {
+		public boolean stop() {
 			triggerSwitch(EReaderState.STOPPING);
+			return true;
 		}
 
 		@Override
-		public void start() {
+		public boolean start() {
 			logger.logcat("WaitingState.start: Already running...", "i");
+			return true;
 		}
 
 		@Override
@@ -560,14 +566,16 @@ public class Reader implements Runnable, IReader, Observable {
 		}
 
 		@Override
-		public void stop() {
+		public boolean stop() {
 			logger.logcat("ReadingState.stop: Stopping, this might take some time", "i");
 			triggerSwitch(EReaderState.STOPPING);
+			return true;
 		}
 
 		@Override
-		public void start() {
+		public boolean start() {
 			logger.logcat("ReadingState.start: Already running...", "i");
+			return true;
 		}
 
 	}
@@ -614,13 +622,15 @@ public class Reader implements Runnable, IReader, Observable {
 		}
 
 		@Override
-		public void stop() {
+		public boolean stop() {
 			triggerSwitch(EReaderState.STOPPING);
+			return true;
 		}
 
 		@Override
-		public void start() {
+		public boolean start() {
 			logger.logcat("" + getEnum() + ".start: Already running...", "i");
+			return true;
 		}
 
 	}
@@ -738,15 +748,17 @@ public class Reader implements Runnable, IReader, Observable {
 		}
 
 		@Override
-		public void stop() {
+		public boolean stop() {
 			logger.logcat("TimeoutOccurredState.stop: Stopping... Might take a while " +
 					"if blocking operations are in progress", "i");
 			triggerSwitch(EReaderState.STOPPING);
+			return true;
 		}
 
 		@Override
-		public void start() {
+		public boolean start() {
 			logger.logcat("TimeoutOccurredState.start: Already running", "i");
+			return true;
 		}
 
 	}
@@ -787,15 +799,17 @@ public class Reader implements Runnable, IReader, Observable {
 		}
 
 		@Override
-		public void stop() {
+		public boolean stop() {
 			triggerSwitch(EReaderState.STOPPING);
 			logger.logcat(getEnum() + ".stop: Stopping...", "i");
+			return true;
 		}
 
 		@Override
-		public void start() {
+		public boolean start() {
 			logger.logcat(getEnum() + ".start: Already running, though currently" +
 					" in a failure state.", "i");
+			return true;
 		}
 
 	}
@@ -824,13 +838,15 @@ public class Reader implements Runnable, IReader, Observable {
 		}
 
 		@Override
-		public void stop() {
+		public boolean stop() {
 			logger.logcat("StoppingState.stop: Already stopping...", "i");
+			return true;
 		}
 
 		@Override
-		public void start() {
-			throw new IllegalStateException("Can't start during shutdown!");
+		public boolean start() {
+			logger.logcat(getEnum() + ".start: Can't start during shutdown!", "e");
+			return false;
 		}
 
 	}

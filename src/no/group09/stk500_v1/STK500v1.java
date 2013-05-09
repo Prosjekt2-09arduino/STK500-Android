@@ -115,9 +115,12 @@ public class STK500v1 {
 
 	private void restartReader() {
 		logger.logcat("restartReader: restarting reader", "d");
-
+		boolean stopScheduled = false;
+		boolean startScheduled = false;
 		while (reader.getState() != EReaderState.STOPPED) {
-			reader.stop();
+			if (!stopScheduled) {
+				stopScheduled = reader.stop();
+			}
 			try {
 				Thread.sleep(10);
 			} catch (InterruptedException e) {
@@ -128,7 +131,9 @@ public class STK500v1 {
 		waitForReaderStateActivated();
 
 		while (reader.getState() != EReaderState.WAITING) {
-			reader.start();
+			if (!startScheduled) {
+				startScheduled = reader.start(); 
+			}
 			try {
 				Thread.sleep(1);
 			} catch (InterruptedException e) {
@@ -344,13 +349,14 @@ public class STK500v1 {
 	private void shutdownReaderCompletely() {
 		long timeout = 10000;
 		long time = System.currentTimeMillis();
+		boolean stopScheduled = false;
 		while (reader.getState() != EReaderState.STOPPED) {
 			if(System.currentTimeMillis() > time + timeout) {
 				readerThread.stop();
 				return;
 			}
-			else {
-				reader.stop();
+			else if (!stopScheduled){
+				stopScheduled = reader.stop();
 			}
 		}
 		waitForReaderStateActivated(timeout/2);
