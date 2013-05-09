@@ -19,4 +19,12 @@ public interface IReaderState {
 	 */
 	public boolean isReadingAllowed();
 	
+	/**
+	 * Checks if the state has been initialized.
+	 * @return true if the state is the current state and it has run its
+	 * initialization code.
+	 * @return false if the state is not the current state or it has yet to be
+	 * initialized.
+	 */
+	public boolean hasStateBeenActivated();
 }

@@ -61,7 +61,8 @@ public class STK500v1 {
 				Thread.sleep(2);
 			} catch (InterruptedException e) {}
 		}
-
+		waitForReaderStateActivated();
+		
 		logger.logcat("STKv1 constructor: ReadWrapper should be started now", "v");
 		state = ProtocolState.READY;
 		//readWrapper.setStrictPolicy(false);
@@ -85,6 +86,7 @@ public class STK500v1 {
 			if (spamSync()) {
 				partialRecovery = true;
 				while (reader.getState() != EReaderState.WAITING) {}
+				waitForReaderStateActivated();
 				//ignore bytes received from spamming (or even older ones)
 				reader.forget();
 				try {
@@ -121,6 +123,8 @@ public class STK500v1 {
 			}
 		}
 
+		waitForReaderStateActivated();
+		
 		while (reader.getState() != EReaderState.WAITING) {
 			reader.start();
 			try {
@@ -129,6 +133,7 @@ public class STK500v1 {
 				e.printStackTrace();
 			}
 		}
+		waitForReaderStateActivated();
 	}
 
 	public boolean spamSync() {
@@ -136,6 +141,11 @@ public class STK500v1 {
 		logger.logcat("spamSync: sending commands", "d");
 		for (int i = 0; i < 500; i++) {
 			if (reader.getState() == EReaderState.TIMEOUT_OCCURRED) {
+				if (!waitForReaderStateActivated(10)) {
+					logger.logcat("spamSync: gave up waiting for state activation", "d");
+					continue;
+				}
+				
 				int result = reader.getResult();
 				logger.logcat("spamSync: reader.getresult returns: " + result, "i");
 				if (result == IReader.TIMEOUT_BYTE_RECEIVED) {
@@ -339,6 +349,7 @@ public class STK500v1 {
 				reader.stop();
 			}
 		}
+		waitForReaderStateActivated(timeout/2);
 		((Reader)reader).requestCompleteStop();
 	}
 
@@ -348,6 +359,7 @@ public class STK500v1 {
 			if (reader.getState() != EReaderState.WAITING) {
 				restartReader();
 			}
+			waitForReaderStateActivated();
 			if(!softReset()) {
 				logger.logcat("programUsingOptiboot: Arduino didn't restart!", "w");
 				state = ProtocolState.ERROR_CONNECT;
@@ -1740,10 +1752,28 @@ public class STK500v1 {
 				e.printStackTrace();
 			}
 		}
+		waitForReaderStateActivated(10);
 		return reader.read(timeout);
 	}
 
+	public boolean waitForReaderStateActivated (long timeout) {
+		long time = System.currentTimeMillis();
+		while(!reader.wasCurrentStateActivated()) {
+			if (timeout > 0 && System.currentTimeMillis() - time > timeout) {
+				return false;
+			}
+			try {
+				Thread.sleep(1);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+		return true;
+	}
 
+	public boolean waitForReaderStateActivated() {
+		return waitForReaderStateActivated(-1);
+	}
 
 	/**
 	 * Return progress of programming as integer, 0 - 100.

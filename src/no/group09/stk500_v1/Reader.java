@@ -232,6 +232,16 @@ public class Reader implements Runnable, IReader, Observable {
 			activated = false;
 			abort = false;
 		}
+		
+		@Override
+		public boolean wasCurrentStateActivated() {
+			return hasStateBeenActivated();
+		}
+		
+		@Override
+		public boolean hasStateBeenActivated() {
+			return (currentState == this && activated);
+		}
 
 		@Override
 		public void execute() {
@@ -340,7 +350,6 @@ public class Reader implements Runnable, IReader, Observable {
 			bis = null;
 			activated = true;
 			abort = false;
-
 		}
 
 		@Override
@@ -828,6 +837,11 @@ public class Reader implements Runnable, IReader, Observable {
 			throw new IllegalStateException("Can't start during shutdown!");
 		}
 
+	}
+
+	@Override
+	public boolean wasCurrentStateActivated() {
+		return currentState.hasStateBeenActivated();
 	}
 
 

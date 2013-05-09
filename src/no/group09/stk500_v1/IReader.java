@@ -33,4 +33,6 @@ public interface IReader {
 	 * Attempt to forget received unread bytes.
 	 */
 	public void forget();
+	
+	public boolean wasCurrentStateActivated();
 }
