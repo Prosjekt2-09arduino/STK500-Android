@@ -179,11 +179,11 @@ public class STK500v1 {
 	 * @param p Progress to set. Valid input is 0 - 100.
 	 */
 	private void setProgress(double p) {
-		if(p > 100) {
+		if((int)p > 100) {
 			logger.logcat("setProgress: Value too high, values was: " + p, "w");
 			progress = 100;
 		}
-		else if(p < 100) {
+		else if((int)p < 0) {
 			logger.logcat("setProgress: Value too low, values was: " + p, "w");
 			progress = 0;
 		}
