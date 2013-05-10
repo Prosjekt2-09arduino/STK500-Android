@@ -781,7 +781,7 @@ public class STK500v1 {
 					continue;
 				case 2:
 					if(numberOfBytes == ConstantsStk500v1.STK_OK) {
-						logger.logcat("readPage: STK_OK, " +
+						logger.logcat("chipEraseUniversal: STK_OK, " +
 								Hex.oneByteToHex(in[i]), "w");
 					}
 					return true;
@@ -790,13 +790,13 @@ public class STK500v1 {
 				}
 			}
 			//Something went wrong
-			logger.logcat("readPage: Something went wrong...", "w");
+			logger.logcat("chipEraseUniversal: Something went wrong...", "w");
 			return false;
 		} catch (TimeoutException e) {
-			logger.logcat("readPage: Unable to read", "w");
+			logger.logcat("chipEraseUniversal: Unable to read", "w");
 			return false;
 		} catch (IOException e) {
-			logger.logcat("readPage: Problem reading! " + e.getMessage(), "e");
+			logger.logcat("chipEraseUniversal: Problem reading! " + e.getMessage(), "e");
 			return false;
 		}
 	}
@@ -862,7 +862,7 @@ public class STK500v1 {
 		}
 
 		// Check if address was loaded
-		if (checkInput()){
+		if (checkInput(false, ConstantsStk500v1.STK_LOAD_ADDRESS, TimeoutValues.CONNECT)){
 			logger.logcat("loadAddress: address loaded", "i");
 			return true;
 		}
@@ -1011,9 +1011,11 @@ public class STK500v1 {
 	 * match any of the above, something went wrong and the method returns null.
 	 * The caller should then retry.
 	 */
-	private byte[] readPage(int address, boolean writeFlash) {
+	//TODO: Javadoc
+	private boolean readPage(byte[] data, int address, boolean writeFlash)
+			throws IllegalArgumentException {
 		byte[] addr = packTwoBytes(address);
-		return readPage(addr[0], addr[1], writeFlash);
+		return readPage(data, addr[0], addr[1], writeFlash);
 	}
 
 	/**
@@ -1034,7 +1036,8 @@ public class STK500v1 {
 	 * match any of the above, something went wrong and the method returns null.
 	 * The caller should then retry.
 	 */
-	private byte[] readPage(byte bytes_high, byte bytes_low, boolean writeFlash) {
+	//TODO: Javadoc
+	private boolean readPage(byte[] data, byte bytes_high, byte bytes_low, boolean writeFlash) {
 		byte[] readCommand = new byte[5];
 		byte memtype;
 
@@ -1071,54 +1074,56 @@ public class STK500v1 {
 		}
 
 		int numberOfBytes = 0;
-
+		
 		//read start command + n data bytes + end command
-		byte[] in = new byte[unPackTwoBytes(bytes_high, bytes_low)]; 
+		byte[] in = new byte[unPackTwoBytes(bytes_high, bytes_low) + 2]; 
 
 		logger.logcat("readPage: Waiting for " + in.length + " bytes.", "d");
 
 		//Read data
 		try {
-			for (int i = 0; i < in.length+2; i++) {
-				numberOfBytes = read(TimeoutValues.READ);
-
-				// First byte
-				if(i==0) {
-					if(numberOfBytes != ConstantsStk500v1.STK_INSYNC) {
+			do{
+				numberOfBytes += read(in, numberOfBytes, TimeoutValues.READ);
+				
+				if(numberOfBytes >= 1) {
+					// Check first byte
+					if(in[0] != ConstantsStk500v1.STK_INSYNC) {
 						logger.logcat("readPage: STK_INSYNC failed on first byte, " +
-								Hex.oneByteToHex((byte)numberOfBytes), "w");
-						return null;
+								Hex.oneByteToHex((byte)in[0]), "w");
+						return false;
 					}
-					else {
-						logger.logcat("readPage: STK_INSYNC, " + Hex.oneByteToHex((byte)numberOfBytes), "d");
-						continue;
-					}
+					
 				}
-				// Last byte
-				else if(i==in.length+1) {
-					if(numberOfBytes != ConstantsStk500v1.STK_OK) {
-						logger.logcat("readPage: STK_OK failed on last byte, " + i +
-								", value " + Hex.oneByteToHex((byte)numberOfBytes), "w");
-						return null;
-					}
-					else {
-						logger.logcat("readPage: Read OK.", "d");
-						return in;
-					}
-				}
-				else {
-					in[i-1] = (byte)numberOfBytes;
+				
+				logger.logcat("readPage: Read data: " + Hex.oneByteToHex((byte)numberOfBytes), "v");
+			} while(numberOfBytes < in.length);
+			
+			logger.logcat("uploadFile: Read data: " + Hex.bytesToHex(in), "d");
+			logger.logcat("uploadFile: Compare to data: " + Hex.bytesToHex(data), "d");
+			
+			// Check last byte
+			if(in[in.length] != ConstantsStk500v1.STK_OK) {
+				logger.logcat("readPage: STK_OK failed on last byte, " + in.length +
+						", value " + Hex.oneByteToHex((byte)in[in.length]), "w");
+				return false;
+			}
+			
+			// Check data bytes
+			for (int i = 0; i < in.length-2; i++) {
+				if(data[i] != in[i+1]) {
+					logger.logcat("readPage: Something went wrong...", "w");
+					return false;
 				}
 			}
-			//Something went wrong
-			logger.logcat("readPage: Something went wrong...", "w");
-			return null;
+			
+			logger.logcat("readPage: Read OK.", "d");
+			return true;
 		} catch (TimeoutException e) {
 			logger.logcat("readPage: Unable to read! " + e.getMessage(), "w");
-			return null;
+			return false;
 		} catch (IOException e) {
 			logger.logcat("readPage: Unable to read! " + e.getMessage(), "w");
-			return null;
+			return false;
 		}
 	}
 
@@ -1409,7 +1414,7 @@ public class STK500v1 {
 	 */
 	private boolean writeAndReadFile(boolean checkWrittenData, int bytesToLoad) {
 		setProgress(0);
-		uploadFileTries = 0;
+		
 		if(checkWrittenData) readWrittenPage = true;
 		else readWrittenPage = false;
 
@@ -1436,22 +1441,29 @@ public class STK500v1 {
 	 * @return True if everything was successful.
 	 */
 	private boolean uploadFile(int bytesToLoad, boolean write) {
+		uploadFileTries = 0;
+		
 		// Calculate progress
 		state = ProtocolState.WRITING;//TODO: if Check checkReadWriteBytes and chipErase
 		//universal needs state updates after merging
 
 		logger.logcat("progress: " + getProgress() + " %", "d");
 
-		logger.logcat("uploadFile: Data bytes to write: " +
-				bytesToLoad, "d");
+		if(write) {
+			logger.logcat("uploadFile: Data bytes to write: " +
+					bytesToLoad, "d");
+		} else {
+			logger.logcat("uploadFile: Data bytes to read: " +
+					bytesToLoad, "d");
+		}
 
-		// Counter used to keep the position in the hex-file
+		// Index of written/read data bytes from hex file
 		int hexPosition = 0;
 
 		//Run through the entire hex file, ignoring the last line
 		while (hexPosition < hexParser.getDataSize()) {
 			// Give up...
-			if(uploadFileTries>10) return false;
+			if(uploadFileTries>5) return false;
 
 			// Get bytes from hex file
 			byte[] tempArray = hexParser.getHexLine(hexPosition, bytesToLoad);
@@ -1503,6 +1515,8 @@ public class STK500v1 {
 							hexPosition + " / " + hexParser.getDataSize(), "d");
 				}
 				else {
+					logger.logcat("uploadFile: Could not write.", "w");
+					uploadFileTries++;
 					success = false;
 				}
 			}
@@ -1511,18 +1525,26 @@ public class STK500v1 {
 
 				// Check if reading of written data was successful.
 				// Increment counter and read next page
-				if(readPage(bytesToLoad, false) == tempArray) {
-					hexPosition+=tempArray.length;
+//				byte[] tempRead = readPage(bytesToLoad, true);
+				
+				try {
+					if(readPage(tempArray, bytesToLoad, true)) {
+						hexPosition+=tempArray.length;
 
-					// Calculate progress
-					logger.logcat("hexPosition: " + hexPosition +
-							", hexParser.getDataSize(): " + hexParser.getDataSize(), "d");
-					setProgress((double)hexPosition / (double)hexParser.getDataSize() + 50);
-					
-					logger.logcat("progress: " + getProgress() + " % ", "d");
-				}
-				else {
-					success = false;
+						// Calculate progress
+						logger.logcat("hexPosition: " + hexPosition +
+								", hexParser.getDataSize(): " + hexParser.getDataSize(), "d");
+						setProgress((double)hexPosition / (double)hexParser.getDataSize() + 50);
+						
+						logger.logcat("progress: " + getProgress() + " % ", "d");
+					}
+					else {
+						logger.logcat("uploadFile: Could not read.", "w");
+						uploadFileTries++;
+						success = false;
+					}
+				} catch (Exception e) {
+					return false;
 				}
 			}
 
@@ -1642,7 +1664,7 @@ public class STK500v1 {
 	 * @throws IOException 
 	 */
 	private int read(TimeoutValues timeout) throws TimeoutException, IOException {
-		return read(null, timeout);
+		return read(null, 0, timeout);
 	}
 
 	/**
@@ -1658,7 +1680,7 @@ public class STK500v1 {
 	 * @throws TimeoutException 
 	 * @throws IOException 
 	 */
-	private int read(byte[] buffer, TimeoutValues timeout) throws TimeoutException,
+	private int read(byte[] buffer, int offset, TimeoutValues timeout) throws TimeoutException,
 	IOException {
 		long wait = 5000;
 		long time = System.currentTimeMillis();
@@ -1675,7 +1697,7 @@ public class STK500v1 {
 			}
 		}
 		waitForReaderStateActivated(10);
-		return reader.read(timeout);
+		return reader.read(buffer, offset, timeout);
 	}
 
 	public boolean waitForReaderStateActivated (long timeout) {

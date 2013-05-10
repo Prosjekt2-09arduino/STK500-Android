@@ -26,6 +26,8 @@ public class Reader implements Runnable, IReader, Observable {
 	private List<PropertyChangeListener> listeners;
 	private Queue<IReaderState> eventQueue;
 	private int result;
+	private volatile byte[] resultArray;
+	private volatile int offset;
 
 
 
@@ -148,6 +150,12 @@ public class Reader implements Runnable, IReader, Observable {
 	@Override
 	public int read(TimeoutValues timeout) throws TimeoutException, IOException {
 		return ((IReader)currentState).read(timeout);
+	}
+	
+	@Override
+	public int read(byte[] saveTo, int offset, TimeoutValues timeout)
+			throws TimeoutException, IOException {
+		return ((IReader)currentState).read(saveTo, offset, timeout);
 	}
 
 	@Override
@@ -306,6 +314,11 @@ public class Reader implements Runnable, IReader, Observable {
 		public int read(TimeoutValues timeout) throws TimeoutException, IOException {
 			return RESULT_NOT_DONE;
 		}
+		
+		@Override
+		public int read(byte[] saveTo, int offset, TimeoutValues timeout) throws TimeoutException, IOException {
+			return RESULT_NOT_DONE;
+		}
 
 		@Override
 		public int getResult() {
@@ -411,6 +424,7 @@ public class Reader implements Runnable, IReader, Observable {
 		@Override
 		public void activate() {
 			logger.logcat("WaitingState.activate: Ready to work", "d");
+			resultArray = null;
 			lastException = null;
 			active = true;
 			activated = true;
@@ -449,10 +463,16 @@ public class Reader implements Runnable, IReader, Observable {
 		public boolean isReadingAllowed() {
 			return true; //TODO: Consider if checks are needed
 		}
-
+		
 		@Override
 		public int read(TimeoutValues timeout) throws TimeoutException, IOException {
+			return read(null, 0, timeout);
+		}
+
+		@Override
+		public int read(byte[] saveTo, int offset, TimeoutValues timeout) throws TimeoutException, IOException {
 			logger.logcat(getEnum() + " read: entered read method in Reader.java", "i");
+			resultArray = saveTo;
 			triggerSwitch(EReaderState.READING);
 			while (true) {
 				EReaderState s = currentState.getEnum();
@@ -460,8 +480,14 @@ public class Reader implements Runnable, IReader, Observable {
 				switch (s) {
 				case RESULT_READY : {
 					int res = state.getResult();
-					logger.logcat(getEnum() + ".read: result: " + 
-							Hex.oneByteToHex((byte) res), "i");
+					if (resultArray != null) {
+						this.reader.offset = offset;
+						logger.logcat(getEnum() + ".read: result: " + 
+								Hex.oneByteToHex((byte) res), "i");
+					} else {
+						logger.logcat(getEnum() + ".read: read: " + 
+								res + " bytes", "i");
+					}
 					return res;
 				}
 				case TIMEOUT_OCCURRED : {
@@ -504,6 +530,7 @@ public class Reader implements Runnable, IReader, Observable {
 
 	class ReadingState extends BaseState {
 		private long readInitiated;
+		private int minBytesToRead;
 
 		public ReadingState(Reader reader, EReaderState eState) {
 			super(reader, eState);
@@ -516,6 +543,7 @@ public class Reader implements Runnable, IReader, Observable {
 			synchronized(reader) {
 				result = RESULT_NOT_DONE;
 			}
+			minBytesToRead = (resultArray == null) ? 1 : resultArray.length;
 			readInitiated = System.currentTimeMillis();
 			active = true;
 			activated = true;
@@ -530,7 +558,6 @@ public class Reader implements Runnable, IReader, Observable {
 				int bytesInBuffer = -1;
 				long now = System.currentTimeMillis();
 
-				//TODO: Check if this is right
 				if (now - readInitiated > TimeoutValues.DEFAULT.getTimeout()) {
 					triggerSwitch(EReaderState.TIMEOUT_OCCURRED);
 					return;
@@ -539,9 +566,14 @@ public class Reader implements Runnable, IReader, Observable {
 				//check if there are bytes in the buffer
 				else {
 					bytesInBuffer = (bis.available());
-					if (bytesInBuffer > 0) {
+					int b;
+					if (bytesInBuffer >= minBytesToRead) {
 						logger.logcat(getEnum() + ".execute: bytes in buffer: " + bytesInBuffer, "d");
-						int b = bis.read();
+						if (minBytesToRead > 1) {
+							b = bis.read(resultArray, reader.offset, minBytesToRead);
+						} else {
+							b = bis.read();
+						}
 						//end of stream occurred, further operations will trigger IOException
 						if (b == RESULT_END_OF_STREAM) {
 							logger.logcat("ReadingState.execute: EndOfStream", "w");
@@ -609,7 +641,11 @@ public class Reader implements Runnable, IReader, Observable {
 		@Override
 		public int getResult() {
 			int res = result;
-			logger.logcat(getEnum() + " getResult: " + Hex.oneByteToHex((byte)res), "d");
+			if (resultArray == null) {
+				logger.logcat(getEnum() + " getResult: " + Hex.oneByteToHex((byte)res), "d");
+			} else {
+				logger.logcat(getEnum() + " getResult; " + "read " + res + " bytes", "d");
+			}
 			synchronized(reader) {
 				result = RESULT_NOT_DONE;
 			}
@@ -855,6 +891,8 @@ public class Reader implements Runnable, IReader, Observable {
 	public boolean wasCurrentStateActivated() {
 		return currentState.hasStateBeenActivated();
 	}
+
+	
 
 
 }

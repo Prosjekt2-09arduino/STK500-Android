@@ -23,6 +23,8 @@ public interface IReader {
 	
 	public int read(TimeoutValues timeout) throws TimeoutException, IOException;
 	
+	public int read(byte[] saveTo, int offset, TimeoutValues timeout) throws TimeoutException, IOException;
+	
 	/**Stop the reader**/
 	public boolean stop();
 	
