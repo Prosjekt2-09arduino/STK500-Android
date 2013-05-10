@@ -416,6 +416,7 @@ public class Reader implements Runnable, IReader, Observable {
 	}
 
 	class WaitingState extends BaseState {
+		private volatile boolean readInProgress;
 
 		public WaitingState(Reader reader, EReaderState eState) {
 			super(reader, eState);
@@ -426,6 +427,7 @@ public class Reader implements Runnable, IReader, Observable {
 			logger.logcat("WaitingState.activate: Ready to work", "d");
 			resultArray = null;
 			lastException = null;
+			readInProgress = false;
 			active = true;
 			activated = true;
 			abort = false;
@@ -461,7 +463,7 @@ public class Reader implements Runnable, IReader, Observable {
 
 		@Override
 		public boolean isReadingAllowed() {
-			return true; //TODO: Consider if checks are needed
+			return !readInProgress;
 		}
 		
 		@Override
@@ -472,6 +474,7 @@ public class Reader implements Runnable, IReader, Observable {
 		@Override
 		public int read(byte[] saveTo, int offset, TimeoutValues timeout) throws TimeoutException, IOException {
 			logger.logcat(getEnum() + " read: entered read method in Reader.java", "i");
+			readInProgress = true;
 			resultArray = saveTo;
 			triggerSwitch(EReaderState.READING);
 			while (true) {
@@ -480,20 +483,23 @@ public class Reader implements Runnable, IReader, Observable {
 				switch (s) {
 				case RESULT_READY : {
 					int res = state.getResult();
-					if (resultArray != null) {
+					if (resultArray == null) {
 						this.reader.offset = offset;
 						logger.logcat(getEnum() + ".read: result: " + 
 								Hex.oneByteToHex((byte) res), "i");
 					} else {
-						logger.logcat(getEnum() + ".read: read: " + 
+						logger.logcat(getEnum() + ".read: read " + 
 								res + " bytes", "i");
 					}
+					readInProgress = false;
 					return res;
 				}
 				case TIMEOUT_OCCURRED : {
+					readInProgress = false;
 					throw new TimeoutException("Reader.read: Reading timed out!");
 				}
 				case FAIL : {
+					readInProgress = false;
 					int res = state.getResult();
 					if (res == RESULT_END_OF_STREAM) {
 						return res;
@@ -513,6 +519,7 @@ public class Reader implements Runnable, IReader, Observable {
 				}
 				case STOPPED : {} //fall through to stopping
 				case STOPPING : {
+					readInProgress = false;
 					logger.logcat("Reader.read: Terminated by request while reading!",
 							"w");
 					return RESULT_NOT_DONE;
@@ -543,7 +550,11 @@ public class Reader implements Runnable, IReader, Observable {
 			synchronized(reader) {
 				result = RESULT_NOT_DONE;
 			}
-			minBytesToRead = (resultArray == null) ? 1 : resultArray.length;
+			minBytesToRead = (resultArray == null) ? 1 : resultArray.length - offset;
+			if (minBytesToRead > 1) {
+				logger.logcat(getEnum() + ".activate: asked by readPage to read " +
+						minBytesToRead + " bytes. Offset set to " + offset, "d");
+			}
 			readInitiated = System.currentTimeMillis();
 			active = true;
 			activated = true;
@@ -567,10 +578,14 @@ public class Reader implements Runnable, IReader, Observable {
 				else {
 					bytesInBuffer = (bis.available());
 					int b;
-					if (bytesInBuffer >= minBytesToRead) {
-						logger.logcat(getEnum() + ".execute: bytes in buffer: " + bytesInBuffer, "d");
+					if (bytesInBuffer > 0) {
+						logger.logcat(getEnum() + ".execute: bytes in buffer: " +
+								bytesInBuffer, "d");
 						if (minBytesToRead > 1) {
-							b = bis.read(resultArray, reader.offset, minBytesToRead);
+							logger.logcat(getEnum() + ".execute: readPage read... " +
+									"Array size: " + resultArray.length + " offset: " +
+									offset + " bytesToRead: " +	minBytesToRead, "d");
+							b = bis.read(resultArray, offset, minBytesToRead);
 						} else {
 							b = bis.read();
 						}

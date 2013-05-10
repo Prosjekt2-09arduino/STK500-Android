@@ -1061,9 +1061,19 @@ public class STK500v1 {
 		readCommand[3] = memtype;
 		readCommand[4] = ConstantsStk500v1.CRC_EOP;
 
+		logger.logcat("readpage: wait to forget...", "d");
+		while (reader.getState() != EReaderState.WAITING &&
+				reader.wasCurrentStateActivated()) {
+			try {
+				Thread.sleep(0,100);
+			} catch (InterruptedException e) {}
+		}
+		reader.forget();
+		
 		logger.logcat("readPage: Sending bytes: " + 
 				Hex.bytesToHex(readCommand), "d");
-
+		
+		
 		// Send bytes
 		try {
 			output.write(readCommand);
@@ -1074,49 +1084,76 @@ public class STK500v1 {
 		}
 
 		int numberOfBytes = 0;
-		
+		int temp = 0;
 		//read start command + n data bytes + end command
 		byte[] in = new byte[unPackTwoBytes(bytes_high, bytes_low) + 2]; 
 
 		logger.logcat("readPage: Waiting for " + in.length + " bytes.", "d");
 
 		//Read data
+		boolean inSyncChecked = false;
 		try {
 			do{
-				numberOfBytes += read(in, numberOfBytes, TimeoutValues.READ);
+				logger.logcat("readPage: Offset: " + numberOfBytes, "d");
+				temp = read(in, numberOfBytes, TimeoutValues.READ);
+				logger.logcat("readPage: Already read: " + numberOfBytes + " -- Read " +
+						"now: " + temp, "d");
 				
-				if(numberOfBytes >= 1) {
+				if (temp > 0) {
+					logger.logcat("readPage: read " + temp + " bytes.", "d");
+					numberOfBytes += temp;
+					
+				} else if (temp == 0) {
+					throw new IllegalStateException("0 Should be impossible to receive");
+				} else if (temp == IReader.RESULT_END_OF_STREAM) {
+					throw new IllegalStateException("Unexpected end of stream " +
+							"encountered. Should have been picked up earlier");
+				} else if (temp == IReader.RESULT_NOT_DONE) {
+					logger.logcat("Probably had to wait too long for the reader to " +
+							"switch states.", "i");
+					return false;
+				} else {
+					throw new IllegalStateException("Unexpected return value: " +
+							numberOfBytes);
+				}
+				
+				if(numberOfBytes >= 1 && !inSyncChecked) {
 					// Check first byte
 					if(in[0] != ConstantsStk500v1.STK_INSYNC) {
 						logger.logcat("readPage: STK_INSYNC failed on first byte, " +
 								Hex.oneByteToHex((byte)in[0]), "w");
 						return false;
+					} else {
+						logger.logcat("readPage: STK_INSYNC was OK", "i");
+						inSyncChecked = true;
 					}
 					
 				}
 				
-				logger.logcat("readPage: Read data: " + Hex.oneByteToHex((byte)numberOfBytes), "v");
+				logger.logcat("readPage: Read total bytes: " + numberOfBytes, "i");
 			} while(numberOfBytes < in.length);
 			
 			logger.logcat("uploadFile: Read data: " + Hex.bytesToHex(in), "d");
 			logger.logcat("uploadFile: Compare to data: " + Hex.bytesToHex(data), "d");
 			
 			// Check last byte
-			if(in[in.length] != ConstantsStk500v1.STK_OK) {
-				logger.logcat("readPage: STK_OK failed on last byte, " + in.length +
-						", value " + Hex.oneByteToHex((byte)in[in.length]), "w");
+			if(in[in.length - 1] != ConstantsStk500v1.STK_OK) {
+				logger.logcat("readPage: STK_OK failed on last byte, " + (in.length - 1) +
+						", value " + Hex.oneByteToHex((byte)in[in.length - 1]), "w");
 				return false;
+			} else {
+				logger.logcat("readPage: STK_OK was OK", "i");
 			}
 			
 			// Check data bytes
 			for (int i = 0; i < in.length-2; i++) {
 				if(data[i] != in[i+1]) {
-					logger.logcat("readPage: Something went wrong...", "w");
+					logger.logcat("readPage: Read data did not match sent data", "w");
 					return false;
 				}
 			}
 			
-			logger.logcat("readPage: Read OK.", "d");
+			logger.logcat("readPage: Read bytes verified.", "i");
 			return true;
 		} catch (TimeoutException e) {
 			logger.logcat("readPage: Unable to read! " + e.getMessage(), "w");
@@ -1415,8 +1452,14 @@ public class STK500v1 {
 	private boolean writeAndReadFile(boolean checkWrittenData, int bytesToLoad) {
 		setProgress(0);
 		
-		if(checkWrittenData) readWrittenPage = true;
-		else readWrittenPage = false;
+		if(checkWrittenData) {
+			logger.logcat("writeAndReadFile: asked to read", "i");
+			readWrittenPage = true;
+		}
+		else  {
+			logger.logcat("writeAndReadFile: asked write", "i");
+			readWrittenPage = false;
+		}
 
 		boolean success = uploadFile(bytesToLoad, true);
 
@@ -1682,9 +1725,11 @@ public class STK500v1 {
 	 */
 	private int read(byte[] buffer, int offset, TimeoutValues timeout) throws TimeoutException,
 	IOException {
-		long wait = 5000;
+		long wait = 500;
 		long time = System.currentTimeMillis();
-		logger.logcat("read: waiting for reader waiting state", "i");
+		int toRead = (buffer == null) ? 1 : buffer.length - offset;
+		logger.logcat("read: waiting for reader waiting state. Will attempt to read " +
+				toRead + " byte(s).", "i");
 		while (reader.getState() != EReaderState.WAITING){
 			if (System.currentTimeMillis() - time > wait) {
 				logger.logcat("read: Giving up waiting for reader", "d");
