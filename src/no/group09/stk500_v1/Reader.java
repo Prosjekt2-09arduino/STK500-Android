@@ -4,15 +4,12 @@ import java.beans.PropertyChangeListener;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.EnumMap;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Observer;
 import java.util.Queue;
-import java.util.Stack;
 import java.util.concurrent.TimeoutException;
 
-public class Reader implements Runnable, IReader, Observable {
+public class Reader implements Runnable, IReader {
 	private InputStream in;
 	private BufferedInputStream bis;
 	private Logger logger;
@@ -175,28 +172,6 @@ public class Reader implements Runnable, IReader, Observable {
 			currentState.execute();
 		}
 		logger.logcat("Reader.run: Fully stopped (needs new Thread to restart)", "i");
-	}
-
-	@Override
-	public synchronized void addStateChangedListener(PropertyChangeListener listener) {
-		if (listeners.contains(listener)) {
-			listeners.add(listener);
-		}
-	}
-
-	@Override
-	public synchronized void removeStateChangedListener(PropertyChangeListener listener) {
-		listeners.remove(listener);
-	}
-
-	@Override
-	public void fireStateChanged() {
-
-		PropertyChangeEvent event = new PropertyChangeEvent(this, "state", currentState, states.get(switchTo));
-
-		for (PropertyChangeListener listener : listeners) {
-			listener.propertyChange(event);
-		}
 	}
 
 	/**
