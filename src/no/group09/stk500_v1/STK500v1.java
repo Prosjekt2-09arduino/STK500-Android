@@ -1660,7 +1660,7 @@ public class STK500v1 {
 	 */
 	private int read(byte[] buffer, TimeoutValues timeout) throws TimeoutException,
 	IOException {
-		long wait = 5000;
+		long wait = 50;
 		long time = System.currentTimeMillis();
 		logger.logcat("read: waiting for reader waiting state", "i");
 		while (reader.getState() != EReaderState.WAITING){
