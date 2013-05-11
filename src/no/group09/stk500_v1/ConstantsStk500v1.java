@@ -1,7 +1,9 @@
 package no.group09.stk500_v1;
 
+/**
+ * STK500 constants used by the Optiboot boot loader and our protocol
+ */
 public class ConstantsStk500v1 {
-	/* STK500 constants list used by Optiboot */
 	public static final byte STK_OK              = 0x10;
 	public static final byte STK_FAILED          = 0x11;  // Not used
 	public static final byte STK_UNKNOWN         = 0x12;  // Not used

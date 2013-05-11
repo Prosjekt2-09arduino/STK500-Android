@@ -1,41 +1,50 @@
 package no.group09.stk500_v1;
-import java.beans.PropertyChangeEvent;
-import java.beans.PropertyChangeListener;
 import java.io.*;
-import java.util.ArrayList;
 import java.util.EnumMap;
-import java.util.Iterator;
 import java.util.LinkedList;
-import java.util.List;
-import java.util.Observer;
 import java.util.Queue;
-import java.util.Stack;
 import java.util.concurrent.TimeoutException;
 
-public class Reader implements Runnable, IReader, Observable {
+/**
+ * This is an implementation of the IReader interface, used to control reading from the
+ * InputStream. This implementation uses states inheriting from a base state class with
+ * common functionality.
+ *
+ * The reader attempts to stay responsive while reading, by only asking to read maximum
+ * the amount of bytes already received (in BufferedInputStream or the socket receiver
+ * buffer.
+ * 
+ * The reader runs the execute method of the current state for each iteration; switching
+ * of states is handled by the states themselves. Calls of the {@link IReader} methods
+ * are automatically performed on the current state.
+ * 
+ * See the {@link EReaderState EReaderState enum} documentation for details on what each
+ * state does.
+ */
+public class Reader implements Runnable, IReader {
 	private InputStream in;
 	private BufferedInputStream bis;
 	private Logger logger;
 	private volatile Exception lastException;
 	private volatile IReaderState currentState;
-	/**State to switch to**/
-	private volatile EReaderState switchTo;
 	private volatile boolean doCompleteStop;
 	private EnumMap<EReaderState, IReaderState> states;
 
-	private List<PropertyChangeListener> listeners;
 	private Queue<IReaderState> eventQueue;
 	private int result;
 
 
-
+	/**
+	 * Instance the reader and all the states utilized by it
+	 * @param input Inputstream to read from
+	 * @param logger Logger interface for logging
+	 */
 	public Reader(InputStream input, Logger logger) {
 		logger.logcat("Reader constructor: Initializing...", "i");
 		if (input == null || logger == null) {
 			throw new IllegalArgumentException("Reader.constructor: null as argument(s)");
 		}
 
-		listeners = new ArrayList<PropertyChangeListener>();
 
 		eventQueue = new LinkedList<IReaderState>();
 
@@ -88,20 +97,29 @@ public class Reader implements Runnable, IReader, Observable {
 			}
 
 			states.put(eState, state);
-			listeners.add((PropertyChangeListener) state);
 		}
 		currentState = states.get(EReaderState.STOPPED);
-		switchTo = EReaderState.STOPPED;
 		logger.logcat("Reader constructor: Done", "i");
 	}
 
+	/**
+	 * Schedule a state switch. Uses the {@link #addToEventQueue(IReaderState)
+	 * addToEventQueue method} internally.
+	 * @param newState The enum value corresponding to the state to switch to
+	 */
 	private void switchState(EReaderState newState) {
-		switchTo = newState;
 		addToEventQueue(states.get(newState));
 	}
 
+	/**
+	 * Adds a state to the event queue. The current state will poll this queue and
+	 * perform a state switch if it's not empty.
+	 * @param newState The actual state instance
+	 */
 	private synchronized void addToEventQueue(IReaderState newState) {
-		//TODO: Check if queue is full
+		if (eventQueue.size() > 500) {
+			logger.logcat("addToEventQueue: Queue already full, has 500 states", "w");
+		}
 		logger.logcat("addToEventQueue: adding newState " + newState.getEnum() + " to queue", "d");
 		eventQueue.add(newState);
 		logger.logcat("addToEventQueue: states in queue after adding: " + eventQueue.size(), "d");
@@ -111,6 +129,10 @@ public class Reader implements Runnable, IReader, Observable {
 		}
 	}
 
+	/**
+	 * Take a state from the queue
+	 * @return The state instance
+	 */
 	private synchronized IReaderState pollEventQueue() {
 		IReaderState state = eventQueue.poll();
 		if (state != null) {
@@ -119,16 +141,17 @@ public class Reader implements Runnable, IReader, Observable {
 		return state;
 	}
 
+	/**
+	 * Empties the event queue
+	 */
 	private synchronized void resetQueue() {
 		eventQueue = new LinkedList<IReaderState>();
 	}
-
-	//	private void switchState(EReaderState eState) {
-	//		IReaderState state = states.get(eState);
-	//		logger.logcat("Reader.switchState: Scheduled switch to " + state.getEnum(), "d");
-	//		((BaseState)currentState).activated = false;
-	//		currentState = state;
-	//	}
+	
+	@Override
+	public boolean wasCurrentStateActivated() {
+		return currentState.hasStateBeenActivated();
+	}
 
 	@Override
 	public void forget() {
@@ -160,6 +183,10 @@ public class Reader implements Runnable, IReader, Observable {
 		return ((IReader)currentState).start();
 	}
 
+	/**
+	 * Use this method to completely stop execution of the reader.
+	 * The reader has to be in a STOPPED state for this to work.
+	 */
 	public void requestCompleteStop() {
 		if (currentState.getEnum() == EReaderState.STOPPED) {
 			logger.logcat("requestCompleteStop: setting doCompleteStop to true", "d");
@@ -171,36 +198,16 @@ public class Reader implements Runnable, IReader, Observable {
 
 	@Override
 	public void run() {
+		//Run until requested to stop
 		while (!doCompleteStop) {
 			currentState.execute();
 		}
 		logger.logcat("Reader.run: Fully stopped (needs new Thread to restart)", "i");
 	}
 
-	@Override
-	public synchronized void addStateChangedListener(PropertyChangeListener listener) {
-		if (listeners.contains(listener)) {
-			listeners.add(listener);
-		}
-	}
-
-	@Override
-	public synchronized void removeStateChangedListener(PropertyChangeListener listener) {
-		listeners.remove(listener);
-	}
-
-	@Override
-	public void fireStateChanged() {
-
-		PropertyChangeEvent event = new PropertyChangeEvent(this, "state", currentState, states.get(switchTo));
-
-		for (PropertyChangeListener listener : listeners) {
-			listener.propertyChange(event);
-		}
-	}
-
 	/**
-	 * Sets the current state of the system. Should be called every time the state is changed.
+	 * Sets the current state of the system. Should be called every time the state is
+	 * changed.
 	 * 
 	 * @param currentState the new current state
 	 */
@@ -209,15 +216,9 @@ public class Reader implements Runnable, IReader, Observable {
 	}
 
 	/**
-	 * Convenience class to limit required code in the actual states
+	 * Convenience class to limit required code in the actual states.
 	 */
-	abstract class BaseState implements IReaderState, IReader, PropertyChangeListener {
-
-		@Override
-		public void propertyChange(PropertyChangeEvent evt) {
-			IReaderState oldState = (IReaderState) evt.getOldValue();
-			IReaderState newState = (IReaderState) evt.getNewValue();
-		}
+	abstract class BaseState implements IReaderState, IReader {
 
 		private EReaderState eState;
 		protected volatile boolean active;
@@ -273,23 +274,6 @@ public class Reader implements Runnable, IReader, Observable {
 					}
 				}
 			}
-		}
-
-
-		/**
-		 * Set flag to switch to the selected state. This will wake the current state
-		 * if it was sleeping.
-		 * If the state is performing blocking operations, the switch may not happen
-		 * immediately.
-		 * @param state The enumeration associated with the state to switch to.
-		 */
-		protected synchronized void triggerSwitch(EReaderState state) {
-			//			switchTo = state;
-			//			logger.logcat(getEnum()+ " triggerSwitch: notifying all.", "d");
-			//			notifyAll();
-
-			//HACK.
-			switchState(state);
 		}
 
 		@Override
@@ -356,7 +340,7 @@ public class Reader implements Runnable, IReader, Observable {
 		@Override
 		public boolean start() {
 			logger.logcat(getEnum() + " start: Starting...", "d");
-			triggerSwitch(EReaderState.STARTING);
+			switchState(EReaderState.STARTING);
 			return true;
 		}
 
@@ -378,7 +362,6 @@ public class Reader implements Runnable, IReader, Observable {
 			abort = false;
 			bis = new BufferedInputStream(in);
 			switchState(EReaderState.WAITING);
-			//TODO: Consider resetting fields
 		}
 
 		@Override
@@ -419,7 +402,7 @@ public class Reader implements Runnable, IReader, Observable {
 
 		@Override
 		public boolean stop() {
-			triggerSwitch(EReaderState.STOPPING);
+			switchState(EReaderState.STOPPING);
 			return true;
 		}
 
@@ -441,19 +424,19 @@ public class Reader implements Runnable, IReader, Observable {
 			} catch (IOException e) {
 				logger.logcat("WaitingState.forget: " + e.getMessage(), "i");
 				lastException = e;
-				triggerSwitch(EReaderState.FAIL);
+				switchState(EReaderState.FAIL);
 			}
 		}
 
 		@Override
 		public boolean isReadingAllowed() {
-			return true; //TODO: Consider if checks are needed
+			return true;
 		}
 
 		@Override
 		public int read(TimeoutValues timeout) throws TimeoutException, IOException {
 			logger.logcat(getEnum() + " read: entered read method in Reader.java", "i");
-			triggerSwitch(EReaderState.READING);
+			switchState(EReaderState.READING);
 			while (true) {
 				EReaderState s = currentState.getEnum();
 				IReader state = (IReader)currentState;
@@ -495,9 +478,6 @@ public class Reader implements Runnable, IReader, Observable {
 					throw new IllegalArgumentException("Unexpected state " + s);
 				}
 				}
-				//				try {
-				//					Thread.sleep(1);
-				//				} catch (InterruptedException e) {}
 			}
 		}
 	}
@@ -530,9 +510,8 @@ public class Reader implements Runnable, IReader, Observable {
 				int bytesInBuffer = -1;
 				long now = System.currentTimeMillis();
 
-				//TODO: Check if this is right
 				if (now - readInitiated > TimeoutValues.DEFAULT.getTimeout()) {
-					triggerSwitch(EReaderState.TIMEOUT_OCCURRED);
+					switchState(EReaderState.TIMEOUT_OCCURRED);
 					return;
 				}
 
@@ -548,27 +527,27 @@ public class Reader implements Runnable, IReader, Observable {
 							synchronized(reader) {
 								result = b;
 							}
-							triggerSwitch(EReaderState.FAIL);
+							switchState(EReaderState.FAIL);
 						} else {
 							//All good
 							synchronized(reader) {
 								result = b;
 							}
-							triggerSwitch(EReaderState.RESULT_READY);
+							switchState(EReaderState.RESULT_READY);
 						}
 					}
 				}
 			} catch (IOException e) {
 				logger.logcat("ReadingState.execute: " + e.getMessage(), "e");
 				lastException = e;
-				triggerSwitch(EReaderState.FAIL);
+				switchState(EReaderState.FAIL);
 			}
 		}
 
 		@Override
 		public boolean stop() {
 			logger.logcat("ReadingState.stop: Stopping, this might take some time", "i");
-			triggerSwitch(EReaderState.STOPPING);
+			switchState(EReaderState.STOPPING);
 			return true;
 		}
 
@@ -613,7 +592,7 @@ public class Reader implements Runnable, IReader, Observable {
 			synchronized(reader) {
 				result = RESULT_NOT_DONE;
 			}
-			triggerSwitch(EReaderState.WAITING);
+			switchState(EReaderState.WAITING);
 			synchronized (this) {
 				resultFetched = true;
 			}
@@ -623,7 +602,7 @@ public class Reader implements Runnable, IReader, Observable {
 
 		@Override
 		public boolean stop() {
-			triggerSwitch(EReaderState.STOPPING);
+			switchState(EReaderState.STOPPING);
 			return true;
 		}
 
@@ -667,7 +646,7 @@ public class Reader implements Runnable, IReader, Observable {
 					}
 				} catch (IOException e) {
 					lastException = e;
-					triggerSwitch(EReaderState.FAIL);
+					switchState(EReaderState.FAIL);
 				}
 			}
 		}
@@ -690,7 +669,7 @@ public class Reader implements Runnable, IReader, Observable {
 		@Override
 		public int getResult() {
 			if (receivedSomething) {
-				triggerSwitch(EReaderState.WAITING);
+				switchState(EReaderState.WAITING);
 				return TIMEOUT_BYTE_RECEIVED;
 			}
 			return RESULT_NOT_DONE;
@@ -714,7 +693,7 @@ public class Reader implements Runnable, IReader, Observable {
 			} catch (IOException e) {
 				logger.logcat("TimeoutOccurred.forget: " + e.getMessage(), "i");
 				lastException = e;
-				triggerSwitch(EReaderState.FAIL);
+				switchState(EReaderState.FAIL);
 			}
 			finally {
 				forgetInProgress = false;
@@ -741,7 +720,7 @@ public class Reader implements Runnable, IReader, Observable {
 				}
 			} catch (IOException e) {
 				lastException = e;
-				triggerSwitch(EReaderState.FAIL);
+				switchState(EReaderState.FAIL);
 			}
 			active = true;
 			activated = true;
@@ -751,7 +730,7 @@ public class Reader implements Runnable, IReader, Observable {
 		public boolean stop() {
 			logger.logcat("TimeoutOccurredState.stop: Stopping... Might take a while " +
 					"if blocking operations are in progress", "i");
-			triggerSwitch(EReaderState.STOPPING);
+			switchState(EReaderState.STOPPING);
 			return true;
 		}
 
@@ -800,7 +779,7 @@ public class Reader implements Runnable, IReader, Observable {
 
 		@Override
 		public boolean stop() {
-			triggerSwitch(EReaderState.STOPPING);
+			switchState(EReaderState.STOPPING);
 			logger.logcat(getEnum() + ".stop: Stopping...", "i");
 			return true;
 		}
@@ -851,10 +830,7 @@ public class Reader implements Runnable, IReader, Observable {
 
 	}
 
-	@Override
-	public boolean wasCurrentStateActivated() {
-		return currentState.hasStateBeenActivated();
-	}
+	
 
 
 }
