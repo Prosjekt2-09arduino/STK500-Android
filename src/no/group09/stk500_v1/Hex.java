@@ -2,6 +2,10 @@ package no.group09.stk500_v1;
 
 import java.util.ArrayList;
 
+/**
+ * Class for interpreting Intel hex files and verifying the binary code. 
+ * Use {@link #getHexLine(int, int) getHexLine} to request chunks of bytes.
+ */
 public class Hex {
 	private Logger logger;
 	

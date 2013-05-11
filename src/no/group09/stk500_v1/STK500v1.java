@@ -6,6 +6,8 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.concurrent.TimeoutException;
 
+import sun.launcher.resources.launcher;
+
 
 /**
  * The protocol class for STK500v1. The current implementation only works with
@@ -43,6 +45,15 @@ public class STK500v1 {
 	private int timeoutRecoveries;
 	private Thread readerThread;
 
+	/**
+	 * Initialize the programmer communicating with the Optiboot bootloader. This does
+	 * not start the programming process, call the
+	 * {@link #programUsingOptiboot(boolean, int) programUsingOptiboot} method for that.
+	 * @param output OutputStream to use for communications
+	 * @param input InputStream for communications
+	 * @param log Logger interface implementation for logging
+	 * @param binary byte array in Intel hex format
+	 */
 	public STK500v1 (OutputStream output, InputStream input, Logger log, byte[] binary) {
 		state = ProtocolState.INITIALIZING;
 		this.hexParser = new Hex(binary, log);
@@ -55,6 +66,9 @@ public class STK500v1 {
 		statistics = new ArrayList<Long>();
 	}
 
+	/**
+	 * Prepares the wrapper class ({@link Reader})
+	 */
 	private void initializeWrapper() {
 		reader = new Reader(input, logger);
 		readerThread = new Thread((Runnable) reader);
@@ -79,7 +93,17 @@ public class STK500v1 {
 		return state;
 	}
 
-	public void recover() {
+	/**
+	 * Attempts to recover from a timeout by rapidly sending synchronization requests
+	 * to the device, but then ignoring the actual response (apart from seeing if any
+	 * response is detected at all).
+	 * 
+	 * If a response is detected, the receiving buffer is cleared and then a proper
+	 * request for synchronization is attempted.
+	 * Failure to detect any response means the device is not responding to programmer
+	 * commands; a soft or hard reset is then required.
+	 */
+	private void recover() {
 		logger.logcat("Recover: Attempting timeout recovery", "i");
 		timeoutOccurred = true;
 		recoverySuccessful = false;
@@ -143,9 +167,14 @@ public class STK500v1 {
 		waitForReaderStateActivated();
 	}
 
-	public boolean spamSync() {
+	/**
+	 * Send synchronization requests without waiting for a response.
+	 * @return
+	 */
+	private boolean spamSync() {
 		byte[] command = {ConstantsStk500v1.STK_GET_SYNC, ConstantsStk500v1.CRC_EOP};
 		logger.logcat("spamSync: sending commands", "d");
+		boolean wrongStateNotified = false;
 		for (int i = 0; i < 500; i++) {
 			if (reader.getState() == EReaderState.TIMEOUT_OCCURRED) {
 				if (!waitForReaderStateActivated(10)) {
@@ -159,6 +188,10 @@ public class STK500v1 {
 					logger.logcat("SpamSync: Returning true", "i");
 					return true;
 				}
+			} else if (!wrongStateNotified) {
+				wrongStateNotified = true;
+				logger.logcat("spamSync: reader not in TIMEOUT_OCCURRED, but in " +
+						reader.getState(), "i");
 			}
 			try {
 				output.write(command);
@@ -204,8 +237,8 @@ public class STK500v1 {
 	}
 
 	/**
-	 * Print to log how much time the writing used.
-	 * Printing highest, average and lowest time used. 
+	 * Print to log how much time the writing spent.
+	 * Printing highest, average and lowest time spent. 
 	 */
 	private void writingStats() {
 		long min = Long.MAX_VALUE;
@@ -386,6 +419,7 @@ public class STK500v1 {
 		boolean stopScheduled = false;
 		while (reader.getState() != EReaderState.STOPPED) {
 			if(System.currentTimeMillis() > time + timeout) {
+				//last resort - the reader thread is unresponsive to proper termination
 				readerThread.stop();
 				return;
 			}
@@ -437,6 +471,8 @@ public class STK500v1 {
 
 	/**
 	 * Reset arduino. This requires the ComputerSerial library on the arduino.
+	 * It will fail if extensive corruption occurs during programming, and will require a
+	 * {@link #hardwareReset() hard reset}.
 	 */
 	private boolean softReset() {
 		// Bytes needed to reset arduino using the ComputerSerial library
@@ -466,6 +502,7 @@ public class STK500v1 {
 	}
 	
 	//TODO: This is not used by optiboot!
+	//Note that these are hardcoded towards the Arduino Uno
 	//	private boolean sendExtendedParameters() {
 	//		//(byte) 45,  (byte) 05, (byte) 04, (byte) d7, (byte) c2, (byte) 00, (byte) 20
 	//		byte[] command = new byte[] {
@@ -482,6 +519,7 @@ public class STK500v1 {
 	//	}
 
 	//TODO: This is not used by optiboot!
+	//Note that these are hardcoded towards the Arduino Uno
 	//	private boolean sendParameters() {
 	//		//B [42] .               [86] .    [00] .    [00] .    [01] .    [01] .    [01] .   [01] .     [03] .       [ff] .      [ff] .        [ff] .      [ff] .   ph[00] .     pl[80] .    [04] .    [00] .    [00] .    [00] .       [80] . [00]   [20]
 	//		byte[] command = new byte[] {
@@ -498,7 +536,7 @@ public class STK500v1 {
 	//	}
 
 	//TODO: Not used by optiboot
-	private void setParameters() {
+//	private void setParameters() {
 		//		for (int i = 0; i < 10; i++) {
 		//		if (sendParameters()) {
 		//			logger.logcat("STK Constructor: succeeded in setting parameters", "i");
@@ -522,7 +560,7 @@ public class STK500v1 {
 		//			return;
 		//		}
 		//	}
-	}
+//	}
 
 	/**
 	 * Attempt to handshake with the Arduino. The method is modified to account for
@@ -530,6 +568,9 @@ public class STK500v1 {
 	 * in sync and OK bytes.
 	 * @return -1 on failure and Arduino otherwise
 	 */
+	//TODO: Not used since it's not really relevant for use with Optiboot; it only
+	//returns the same values as getSynchronization
+	@SuppressWarnings("unused")
 	private String checkIfStarterKitPresent() {
 		logger.logcat("checkIfStarterKitPresent: Detect programmer", "v");
 		String version = "";
@@ -556,10 +597,9 @@ public class STK500v1 {
 			byte readByte;
 			while (readResult >= 0) {
 				readResult = read(TimeoutValues.CONNECT);
-				if (readResult == -1) {
-					//TODO: Discover when/if this happens. Separate genuine end of
+				if (readResult == IReader.RESULT_NOT_DONE) {
 					//stream from job not accepted.
-					logger.logcat("checkIfStarterKitPresent: End of stream encountered", "i");
+					logger.logcat("checkIfStarterKitPresent: Couldn't start reading", "i");
 					break;
 				}
 				readByte = (byte) readResult;
@@ -633,24 +673,6 @@ public class STK500v1 {
 		return false;
 	}
 
-	/*
-	 * TODO: Fill or remove these methods
-	 */
-	private void getParameterValue() {
-	}
-	private void setParameterValue() {
-	}
-	private void setDeviceProgrammingParameters() {
-	}
-	private void programLockBits() {
-	}
-	private void readLockBits() {
-	}
-	private void readSignatureBits() {
-	}
-	private void readOscillatorCalibrationByte() {
-	}
-
 	/**
 	 * Enter programming mode. Set device and programming parameters before calling.
 	 * 
@@ -708,9 +730,11 @@ public class STK500v1 {
 
 	/**
 	 * Erase the device to prepare for programming.
-	 * If using the optiboot bootloader, use chipEraseUniversal
+	 * If using the optiboot bootloader, use {@link #chipEraseUniversal()
+	 * chipEraseUniversal}
 	 * @return true if successful.
 	 */
+	@SuppressWarnings("unused")
 	private boolean chipErase() {
 		//TODO: Not used by optiboot
 		byte[] command = new byte[]{ConstantsStk500v1.STK_CHIP_ERASE, ConstantsStk500v1.CRC_EOP};
@@ -808,9 +832,10 @@ public class STK500v1 {
 	 * 
 	 * @return true if response is STK_INSYNC and STK_OK, false if not.
 	 */
+	@SuppressWarnings("unused")
 	private boolean checkForAddressAutoincrement() {
 
-		//TODO: Remove or add call to this method?
+		//TODO: Add call to this method for non-Optiboot devices
 
 		byte[] command = new byte[2];
 
@@ -873,20 +898,6 @@ public class STK500v1 {
 	}
 
 	/**
-	 * Load 16-bit address down to starterkit. This command is used to set the 
-	 * address for the next read or write operation to FLASH or EEPROM. Must 
-	 * always be used prior to Cmnd_STK_PROG_PAGE or Cmnd_STK_READ_PAGE.
-	 * 
-	 * @param address the address that is to be written as two bytes,
-	 * first high then low
-	 * 
-	 * @return true if it is OK to write the address, false if not.
-	 */
-	private boolean loadAddress(byte highAddress, byte lowAddress) {
-		return loadAddress(unPackTwoBytes(highAddress, lowAddress));
-	}
-
-	/**
 	 * Takes an integer, splits it into bytes, and puts it in an byte array
 	 * 
 	 * @param integer the integer that is to be split
@@ -907,9 +918,10 @@ public class STK500v1 {
 	 * @param data the byte of data that is to be programmed
 	 * @return true if response is STK_INSYNC and STK_OK, false if not.
 	 */
+	@SuppressWarnings("unused")
 	private boolean programDataMemory(byte data) {
 
-		//TODO: Add call to this method
+		//TODO: Not supported by Optiboot
 
 		byte[] programCommand = new byte[3];
 
@@ -998,8 +1010,9 @@ public class STK500v1 {
 	 * Read a block of data from FLASH or EEPROM of the current device. The data
 	 * block size should not be larger than 256 bytes. bytes_high and bytes_low
 	 * are part of an integer that describes the address to be written/read.
-	 * Remember to use loadAddress every time before you start reading. STK500v1
-	 * supports autoincrement, but we do not recommending this.
+	 * Remember to use {@link #loadAddress(int) loadAddress} every time before you start
+	 * reading. STK500v1 supports {@link #checkForAddressAutoincrement() auto increment},
+	 * but we do not recommend relying on this.
 	 * 
 	 * @param address integer
 	 * @param writeFlash boolean indicating if it should be written to flash memory
@@ -1020,8 +1033,9 @@ public class STK500v1 {
 	 * Read a block of data from FLASH or EEPROM of the current device. The data
 	 * block size should not be larger than 256 bytes. bytes_high and bytes_low
 	 * are part of an integer that describes the address to be written/read.
-	 * Remember to use loadAddress every time before you start reading. STK500v1
-	 * supports autoincrement, but we do not recommending this.
+	 * Remember to use {@link #loadAddress(int) loadAddress} every time before you start
+	 * reading. STK500v1 supports {@link #checkForAddressAutoincrement() auto increment},
+	 * but we do not recommend relying on this.
 	 * 
 	 * @param bytes_high most significant byte of block size
 	 * @param bytes_low least significant byte of block size
@@ -1132,9 +1146,10 @@ public class STK500v1 {
 	 * match any of the above, something went wrong and the method returns null.
 	 * The caller should then retry.
 	 */
+	@SuppressWarnings("unused")
 	private byte[] readDataMemory() {
 
-		//TODO: Add call to this method
+		//TODO: Not supported by Optiboot
 
 		byte[] readCommand = new byte[2];
 		byte[] in = new byte[3];
@@ -1177,9 +1192,8 @@ public class STK500v1 {
 	 * match any of the above, something went wrong and the method returns null.
 	 * The caller should then retry.
 	 */
+	@SuppressWarnings("unused")
 	private byte[] readFlashMemory() {
-
-		//TODO: Add call to this method
 
 		byte[] readCommand = new byte[2];
 		byte[] in = new byte[4];
@@ -1214,7 +1228,8 @@ public class STK500v1 {
 
 	/**
 	 * Check input from the Arduino.
-	 * Uses checkInput(boolean checkCommand, byte command) internally
+	 * Uses {@link #checkInput(boolean, byte, TimeoutValues)
+	 * checkInput(boolean checkCommand, byte command)} internally
 	 * @return true if response is STK_INSYNC and STK_OK, false if not
 	 */
 	private boolean checkInput() {
@@ -1337,6 +1352,7 @@ public class STK500v1 {
 	 * @return true if the method was able to program the word to the flash memory,
 	 * false if not.
 	 */
+	@SuppressWarnings("unused")
 	private boolean programFlashMemory(byte flash_low, byte flash_high) {
 
 		byte[] uploadFile = new byte[4];
@@ -1367,8 +1383,17 @@ public class STK500v1 {
 	}
 
 	/**
-	 * Reset the arduino with Hardware. Reconnect to trigger reset. 
+	 * Reset the arduino with Hardware. Reconnect to trigger reset.
+	 * This method is intended to be used to recover after both {@link #recover() timeout
+	 * recovery} and {@link #softReset() soft reset} fail to reestablish communications
+	 * with the device.
 	 * 
+	 * Not implemented due to time constraints.
+	 * 
+	 * This method would close the connection and then reconnect to the device; this
+	 * would trigger a pin on the Bluetooth device connected to the reset pin on the
+	 * device (through the required capacitors/transistors/diodes, depending on the
+	 * hardware implementation).
 	 * @return True if the bluetooth connection was disconnected and reconnected.
 	 */
 	private boolean hardwareReset() {
@@ -1577,41 +1602,6 @@ public class STK500v1 {
 		return true;
 	}
 
-	private void uploadUsingWriteFlash() {
-		//This code section is used to program the flash memory. The previous
-		//section has been changed to fit programPage, so small changes has
-		//to be made if one want to use programFlashMemory() instead.
-		/*
-		//If i <= binary.length, fetch the two next bytes from the binary array
-		if (hexPosition + 1 <= hexLength) {
-			//Fetch the two next bytes in the binary array
-			bytes_low = binary[hexPosition];
-			bytes_high = binary[hexPosition+1];
-		}
-		//Fetch the last byte in the binary array
-		else {
-			bytes_low = binary[hexPosition];
-
-			//FIXME: The low byte is now the last element in the binary array. What to do?
-			bytes_high = 0;
-		}
-
-		//Program the flash and store the result
-		boolean programFlashSuccess = programFlashMemory(bytes_low, bytes_high);
-
-		if (programFlashSuccess) {
-			//Increment position in binary array
-			hexPosition += 2;
-			//Two bytes sent. Response OK. Repeat.
-			continue;
-		}
-		else if (!programFlashSuccess) {
-			//Not able to program flash. Retry.
-			logger.debugTag("programFlashMemory returned false. Unable to program flash. Retrying");
-			continue;
-		}
-		 */
-	}
 
 	/**
 	 * Read two unsigned bytes into an integer
@@ -1635,6 +1625,7 @@ public class STK500v1 {
 
 	/**
 	 * Reads a single byte, will be interrupted after a while
+	 * Uses {@link #read(byte[], TimeoutValues)} internally.
 	 * @param timeout The selected timeout enumeration chosen. Used to determine
 	 * timeout length.
 	 * @return -1 if end of stream encountered, otherwise 0-255
@@ -1649,6 +1640,9 @@ public class STK500v1 {
 	 * Will attempt to fill the entire buffer, if unable to fill it the number of read
 	 * bytes will be returned. If no buffer is sent (null) this method will read
 	 * a single byte.
+	 * 
+	 * This method makes use of the {@link IReader#read(TimeoutValues)} method to
+	 * perform the actual reading.
 	 * 
 	 * @param buffer Array of bytes to store the read bytes
 	 * @param timeout The selected timeout enumeration chosen. Used to determine
@@ -1678,7 +1672,12 @@ public class STK500v1 {
 		return reader.read(timeout);
 	}
 
-	public boolean waitForReaderStateActivated (long timeout) {
+	/**
+	 * Waits for the current state of the reader to initialize completely
+	 * @param timeout How long to wait, pass 0 to wait indefinitely
+	 * @return true if the state activated, false if waiting was aborted
+	 */
+	private boolean waitForReaderStateActivated (long timeout) {
 		logger.logcat("waitForReaderStateActivated: waiting for state to activate", "d");
 		long time = System.currentTimeMillis();
 		while(!reader.wasCurrentStateActivated()) {
@@ -1694,7 +1693,11 @@ public class STK500v1 {
 		return true;
 	}
 
-	public boolean waitForReaderStateActivated() {
+	/**
+	 * Waits indefinitely for the current state to initialize.
+	 * @return
+	 */
+	private boolean waitForReaderStateActivated() {
 		return waitForReaderStateActivated(-1);
 	}
 

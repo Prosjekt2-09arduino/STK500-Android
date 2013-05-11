@@ -1,7 +1,7 @@
 package no.group09.stk500_v1;
 
 /**
- * This enum contains every possible state an IReader can be in. 
+ * This enum contains every possible state an {@link IReader} can be in. 
  */
 public enum EReaderState {
 	/**

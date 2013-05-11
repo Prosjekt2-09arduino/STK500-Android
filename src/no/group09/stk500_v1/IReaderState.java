@@ -1,6 +1,11 @@
 package no.group09.stk500_v1;
 
+/**
+ * This interface describes what operations can be performed on the states themselves.
+ * See {@link EReaderState} for possible states.
+ */
 public interface IReaderState {
+	
 	/**
 	 * Get the enumeration value corresponding to the state
 	 */
