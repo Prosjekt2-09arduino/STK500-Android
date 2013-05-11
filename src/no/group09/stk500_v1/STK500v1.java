@@ -6,8 +6,6 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.concurrent.TimeoutException;
 
-import sun.launcher.resources.launcher;
-
 
 /**
  * The protocol class for STK500v1. The current implementation only works with
