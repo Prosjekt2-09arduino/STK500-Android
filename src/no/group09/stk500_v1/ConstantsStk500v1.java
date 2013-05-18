@@ -19,7 +19,7 @@ package no.group09.stk500_v1;
  *	along with STK500ForJava.  If not, see <http://www.gnu.org/licenses/>.
  */
 /**
- * STK500 constants used by the Optiboot boot loader and our protocol
+ * STK500 constants used by the Optiboot boot loader and this STK500v1 implementation
  */
 public class ConstantsStk500v1 {
 	public static final byte STK_OK              = 0x10;

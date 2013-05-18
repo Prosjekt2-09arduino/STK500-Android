@@ -19,6 +19,9 @@ package no.group09.stk500_v1;
  *	along with STK500ForJava.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/**
+ * Interface used to provide log output and short user notifications.
+ */
 public interface Logger {
 	/**
 	 * Display a message for a brief time
