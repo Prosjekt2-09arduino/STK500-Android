@@ -1457,8 +1457,10 @@ public class STK500v1 {
 		boolean success = uploadFile(bytesToLoad, true);
 
 		if(success && checkWrittenData) {
-			if(uploadFile(bytesToLoad, false)) {
-				success = true;
+			success = uploadFile(bytesToLoad, false);
+			if (!success) {
+				logger.logcat("writeAndReadFile: Upload verification"+
+						"failed.", "d");
 			}
 		}
 
@@ -1485,6 +1487,8 @@ public class STK500v1 {
 
 		logger.logcat("uploadFile: Data bytes to write: " +
 				bytesToLoad, "d");
+		//make sure of the memory type to manipulate:
+		boolean useFlash = true;
 
 		// Counter used to keep the position in the hex-file
 		int hexPosition = 0;
@@ -1515,6 +1519,8 @@ public class STK500v1 {
 					if(hardwareReset()) continue;
 
 					if (timeoutOccurred && !recoverySuccessful){
+						logger.logcat("uploadFile: Unable to load address " +
+								hexPosition, "d");
 						return false;
 					}
 					else if (timeoutOccurred) {
@@ -1531,7 +1537,7 @@ public class STK500v1 {
 
 				// Check if programming of page was successful.
 				// Increment counter and program next page
-				if (programPage(true, tempArray)) {
+				if (programPage(useFlash, tempArray)) {
 					hexPosition+=tempArray.length;
 
 					// Calculate progress
@@ -1552,13 +1558,15 @@ public class STK500v1 {
 
 				// Check if reading of written data was successful.
 				// Increment counter and read next page
-				if(readPage(bytesToLoad, false) == tempArray) {
+				
+				if(readPage(bytesToLoad, useFlash) == tempArray) {
 					hexPosition+=tempArray.length;
 
-					// Calculate progress
 					logger.logcat("hexPosition: " + hexPosition +
 							", hexParser.getDataSize(): " + hexParser.getDataSize(), "d");
-					setProgress((double)hexPosition / (double)hexParser.getDataSize() + 50);
+					// Calculate progress
+					double tempProgress = (double)hexPosition / (double)hexParser.getDataSize();
+					setProgress((tempProgress * 50) + 50);
 					
 					logger.logcat("progress: " + getProgress() + " % ", "d");
 				}
@@ -1612,9 +1620,15 @@ public class STK500v1 {
 				//				}
 			}
 		}
-		logger.logcat("uploadFile: End of file. "+
-				"Upload finished with success.", "d");
-
+		if (write) {
+			if (readWrittenPage) {
+				logger.logcat("uploadFile: End of file. "+
+						"All data uploaded, verification to follow", "d");
+			} else {
+				logger.logcat("uploadFile: End of file. "+
+						"Upload finished with success.", "d");
+			}
+		}
 		return true;
 	}
 
