@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.concurrent.TimeoutException;
 
 
@@ -302,7 +303,7 @@ public class STK500v1 {
 		long startTime;
 		long endTime;
 		boolean entered;
-		logger.logcat("programUsingOptiboot: Initializing programmer", "v");
+		logger.logcat("programUsingOptiboot: Initializing programmer; fix-verify rev 2", "v");
 
 		// Restart the arduino.
 		// This requires the ComputerSerial library on arduino.
@@ -1496,7 +1497,10 @@ public class STK500v1 {
 		//Run through the entire hex file, ignoring the last line
 		while (hexPosition < hexParser.getDataSize()) {
 			// Give up...
-			if(uploadFileTries>10) return false;
+			if(uploadFileTries>10) {
+				logger.logcat("uploadFile: No more attempts left, failed.", "i");
+				return false;
+			}
 
 			// Get bytes from hex file
 			byte[] tempArray = hexParser.getHexLine(hexPosition, bytesToLoad);
@@ -1516,7 +1520,8 @@ public class STK500v1 {
 					break;
 				} else {
 					// Trying to reset
-					if(hardwareReset()) continue;
+					//hw reset not implemented!
+					//if(hardwareReset()) continue;
 
 					if (timeoutOccurred && !recoverySuccessful){
 						logger.logcat("uploadFile: Unable to load address " +
@@ -1550,6 +1555,7 @@ public class STK500v1 {
 							hexPosition + " / " + hexParser.getDataSize(), "d");
 				}
 				else {
+					logger.logcat("uploadFile: Failed writing data.", "d");
 					success = false;
 				}
 			}
@@ -1558,11 +1564,19 @@ public class STK500v1 {
 
 				// Check if reading of written data was successful.
 				// Increment counter and read next page
+				byte[] rdata = readPage(bytesToLoad, useFlash);
+				if (rdata == null) {
+					logger.logcat("uploadFile: Error reading page. Retrying...", "d");
+					uploadFileTries++;
+					continue;
+				}
 				
-				if(readPage(bytesToLoad, useFlash) == tempArray) {
+				if(Arrays.equals(rdata, tempArray)) {
+					success = true;
 					hexPosition+=tempArray.length;
 
-					logger.logcat("hexPosition: " + hexPosition +
+					logger.logcat("uploadFile: Verified received bytes.\n" +
+							"hexPosition: " + hexPosition + 
 							", hexParser.getDataSize(): " + hexParser.getDataSize(), "d");
 					// Calculate progress
 					double tempProgress = (double)hexPosition / (double)hexParser.getDataSize();
@@ -1571,7 +1585,11 @@ public class STK500v1 {
 					logger.logcat("progress: " + getProgress() + " % ", "d");
 				}
 				else {
-					success = false;
+					logger.logcat("uploadFile: Received data didn't match the hex file."+
+							"\nReceived: " + Arrays.toString(rdata) +
+							"\nExpected: " + Arrays.toString(tempArray), "d");
+					//TODO: Trigger rewrite of line (once sure data is read correctly)
+					return false;
 				}
 			}
 
@@ -1579,9 +1597,10 @@ public class STK500v1 {
 			if(!success) {
 				if (timeoutOccurred && !recoverySuccessful) {
 					// Trying to reset
-					if(hardwareReset()) continue;
-
-					return false;
+					//hw reset not implemented! TODO: Consider returning false
+					//if(hardwareReset()) continue;
+					continue;
+					//return false;
 				}
 				else if (timeoutOccurred) {
 					timeoutOccurred = false;
